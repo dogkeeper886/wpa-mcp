@@ -3,8 +3,9 @@
 MCP (Model Context Protocol) Server for WiFi control via wpa_supplicant.
 
 This server runs on a remote Linux host and allows Claude/MCP clients to:
-- Connect/disconnect WiFi networks
+- Connect/disconnect WiFi networks (WPA-PSK and WPA2-Enterprise/802.1X)
 - Scan for available networks
+- Debug connection issues with filtered wpa_supplicant logs
 - Check network connectivity and captive portals
 - Run Playwright browser automation scripts
 
@@ -205,13 +206,21 @@ Add to your `claude_desktop_config.json`:
 
 | Tool | Description |
 |------|-------------|
-| `wifi_scan` | Scan for available WiFi networks |
-| `wifi_connect` | Connect to a WiFi network |
+| `wifi_scan` | Scan for available networks (returns SSID, signal, security type) |
+| `wifi_connect` | Connect to WPA-PSK or open network |
+| `wifi_connect_eap` | Connect to WPA2-Enterprise/802.1X network (PEAP, TTLS, TLS) |
 | `wifi_disconnect` | Disconnect from current network |
-| `wifi_status` | Get current connection status |
-| `wifi_list_networks` | List saved networks |
-| `wifi_forget` | Remove a saved network |
-| `wifi_reconnect` | Reconnect to current network |
+| `wifi_status` | Get connection status (wpa_state, ssid, ip_address, EAP info) |
+| `wifi_list_networks` | List saved networks with flags (CURRENT, TEMP-DISABLED) |
+| `wifi_forget` | Remove a saved network by network_id |
+| `wifi_reconnect` | Reconnect using saved configuration |
+
+### WiFi Diagnostics
+
+| Tool | Description |
+|------|-------------|
+| `wifi_eap_diagnostics` | Get EAP authentication state and decision |
+| `wifi_get_debug_logs` | Get filtered wpa_supplicant logs (eap, state, scan, error) |
 
 ### Browser Automation
 
@@ -259,15 +268,45 @@ browser_run_script("my-portal", { username: "guest", password: "wifi123" })
 
 ## Example Usage
 
+### Basic WiFi Connection
+
 ```
 User: "Scan for WiFi networks"
 Claude: [calls wifi_scan]
-→ Lists available networks with signal strength
+→ Lists available networks with signal strength and security type
 
 User: "Connect to 'CoffeeShop' with password 'guest123'"
 Claude: [calls wifi_connect with ssid="CoffeeShop", password="guest123"]
 → Connects to the network
+```
 
+### WPA2-Enterprise Connection
+
+```
+User: "Connect to corporate WiFi 'CorpNet' with my credentials"
+Claude: [calls wifi_connect_eap with ssid="CorpNet", identity="user@corp.com", password="secret"]
+→ Connects using PEAP/MSCHAPv2
+
+User: "Connection failed, why?"
+Claude: [calls wifi_get_debug_logs with filter="eap"]
+→ Shows EAP authentication logs revealing identity rejection or credential failure
+```
+
+### Debugging Connection Issues
+
+```
+User: "WiFi keeps disconnecting"
+Claude: [calls wifi_get_debug_logs with filter="state"]
+→ Shows state transitions: COMPLETED -> DISCONNECTED -> SCANNING
+
+User: "Check EAP diagnostics"
+Claude: [calls wifi_eap_diagnostics]
+→ Returns: eap_state=IDLE, decision=FAIL (server rejected credentials)
+```
+
+### Captive Portal Handling
+
+```
 User: "Check if there's internet"
 Claude: [calls network_check_internet]
 → Reports online status and latency
@@ -280,6 +319,20 @@ User: "Run the hotel-login script with room 101"
 Claude: [calls browser_run_script with script_name="hotel-login", variables={room: "101"}]
 → Executes Playwright script to handle login
 ```
+
+## Debug Log Filters
+
+The `wifi_get_debug_logs` tool supports these filters to help diagnose specific issues:
+
+| Filter | Use Case | What It Shows |
+|--------|----------|---------------|
+| `all` | Full debugging | All wpa_supplicant logs |
+| `eap` | 802.1X/credential issues | EAP identity, method selection, authentication result |
+| `state` | Connection flow | State transitions (SCANNING → AUTHENTICATING → COMPLETED) |
+| `scan` | Network discovery | Scan results, BSS information |
+| `error` | Failures | Timeouts, authentication failures, TEMP-DISABLED events |
+
+By default, logs are filtered to show only entries since the last WiFi command, making it easy to correlate actions with results.
 
 ## API Endpoints
 
