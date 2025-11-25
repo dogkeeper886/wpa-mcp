@@ -18,8 +18,8 @@ npm run build
 
 # 2. Set up wpa_supplicant (see "wpa_supplicant Setup" below)
 
-# 3. Start the server (replace wlp2s0u4 with your interface)
-WIFI_INTERFACE=wlp2s0u4 npm start
+# 3. Start the server (replace wlan0 with your interface)
+WIFI_INTERFACE=wlan0 npm start
 
 # 4. Register with Claude Code (in another terminal)
 claude mcp add wpa-mcp --transport http --url http://localhost:3000/mcp
@@ -87,7 +87,7 @@ Before the server can control WiFi, wpa_supplicant must be configured properly.
 
 ```bash
 ip link show | grep -E "^[0-9]+: wl"
-# Example output: 4: wlp2s0u4: <BROADCAST,MULTICAST> ...
+# Example output: 4: wlan0: <BROADCAST,MULTICAST> ...
 ```
 
 ### 2. Disable NetworkManager for WiFi interface (if running)
@@ -97,12 +97,12 @@ ip link show | grep -E "^[0-9]+: wl"
 nmcli device status
 
 # If managed, tell NetworkManager to ignore it
-sudo nmcli device set wlp2s0u4 managed no
+sudo nmcli device set wlan0 managed no
 
 # Or permanently via config:
 # /etc/NetworkManager/conf.d/99-unmanaged.conf
 # [keyfile]
-# unmanaged-devices=interface-name:wlp2s0u4
+# unmanaged-devices=interface-name:wlan0
 ```
 
 ### 3. Create wpa_supplicant config
@@ -120,14 +120,14 @@ sudo chmod 600 /etc/wpa_supplicant/wpa_supplicant.conf
 ### 4. Start wpa_supplicant
 
 ```bash
-# Replace wlp2s0u4 with your interface name
-sudo wpa_supplicant -B -i wlp2s0u4 -c /etc/wpa_supplicant/wpa_supplicant.conf
+# Replace wlan0 with your interface name
+sudo wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
 ```
 
 ### 5. Verify wpa_cli works
 
 ```bash
-wpa_cli -i wlp2s0u4 status
+wpa_cli -i wlan0 status
 # Should show: wpa_state=DISCONNECTED (or COMPLETED if connected)
 ```
 
@@ -142,13 +142,13 @@ This means wpa_supplicant is not running with a control interface for your WiFi 
    # Check how it's running
    pgrep -a wpa_supplicant
    # Bad: /usr/sbin/wpa_supplicant -c /etc/wpa_supplicant/wpa_supplicant.conf -u -s
-   # Good: /usr/sbin/wpa_supplicant -B -i wlp2s0u4 -c /etc/wpa_supplicant/wpa_supplicant.conf
+   # Good: /usr/sbin/wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
    ```
 
    Fix: Kill and restart with interface flag:
    ```bash
    sudo killall wpa_supplicant
-   sudo wpa_supplicant -B -i wlp2s0u4 -c /etc/wpa_supplicant/wpa_supplicant.conf
+   sudo wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
    ```
 
 2. **Missing `ctrl_interface` in config**:
@@ -167,7 +167,7 @@ This means wpa_supplicant is not running with a control interface for your WiFi 
 **Problem: Interface is DOWN**
 
 ```bash
-sudo ip link set wlp2s0u4 up
+sudo ip link set wlan0 up
 ```
 
 ### Install Playwright browser (for browser automation)
