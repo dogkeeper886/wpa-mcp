@@ -111,6 +111,75 @@ export function registerWifiTools(server: McpServer): void {
     }
   );
 
+  // wifi_connect_eap - Connect to a WPA2-Enterprise (802.1X) network
+  server.tool(
+    'wifi_connect_eap',
+    'Connect to a WPA2-Enterprise (802.1X) WiFi network using EAP authentication',
+    {
+      ssid: z.string().describe('Network SSID to connect to'),
+      identity: z.string().describe('Username/identity for EAP authentication'),
+      password: z.string().describe('Password for EAP authentication'),
+      eap_method: z
+        .string()
+        .optional()
+        .describe('EAP method: PEAP, TTLS, TLS (default: PEAP)'),
+      phase2: z
+        .string()
+        .optional()
+        .describe('Phase2 authentication: MSCHAPV2, PAP, GTC (default: MSCHAPV2)'),
+      interface: z
+        .string()
+        .optional()
+        .describe('WiFi interface name (default: wlan0)'),
+    },
+    async ({ ssid, identity, password, eap_method, phase2, interface: iface }) => {
+      try {
+        const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
+        await wpa.connectEap(
+          ssid,
+          identity,
+          password,
+          eap_method || 'PEAP',
+          phase2 || 'MSCHAPV2'
+        );
+
+        // Wait a bit and check status
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        const status = await wpa.status();
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: `Connecting to ${ssid} using EAP-${eap_method || 'PEAP'}`,
+                  status: status,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
   // wifi_disconnect - Disconnect from current network
   server.tool(
     'wifi_disconnect',
@@ -323,6 +392,57 @@ export function registerWifiTools(server: McpServer): void {
                   success: true,
                   message: 'Reconnecting to WiFi',
                   status: status,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // wifi_eap_diagnostics - Get EAP/802.1X diagnostic information
+  server.tool(
+    'wifi_eap_diagnostics',
+    'Get detailed EAP/802.1X authentication diagnostics for troubleshooting',
+    {
+      interface: z
+        .string()
+        .optional()
+        .describe('WiFi interface name (default: wlan0)'),
+    },
+    async ({ interface: iface }) => {
+      try {
+        const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
+        const diagnostics = await wpa.getEapDiagnostics();
+        const status = await wpa.status();
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  interface: iface || DEFAULT_INTERFACE,
+                  wpaState: status.wpaState,
+                  ssid: status.ssid,
+                  diagnostics: diagnostics,
                 },
                 null,
                 2
