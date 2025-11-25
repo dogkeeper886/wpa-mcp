@@ -4,9 +4,17 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { registerWifiTools } from './tools/wifi.js';
 import { registerBrowserTools } from './tools/browser.js';
 import { registerConnectivityTools } from './tools/connectivity.js';
+import { WpaDaemon } from './lib/wpa-daemon.js';
 
 const app = express();
 app.use(express.json());
+
+// Create wpa_supplicant daemon manager
+const wpaDaemon = new WpaDaemon(
+  process.env.WIFI_INTERFACE || 'wlan0',
+  process.env.WPA_CONFIG_PATH || '/etc/wpa_supplicant/wpa_supplicant.conf',
+  parseInt(process.env.WPA_DEBUG_LEVEL || '2', 10)
+);
 
 // Create MCP server
 const mcpServer = new McpServer({
@@ -15,7 +23,7 @@ const mcpServer = new McpServer({
 });
 
 // Register all tools
-registerWifiTools(mcpServer);
+registerWifiTools(mcpServer, wpaDaemon);
 registerBrowserTools(mcpServer);
 registerConnectivityTools(mcpServer);
 
@@ -45,12 +53,34 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', server: 'wpa-mcp', version: '1.0.0' });
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
+// Graceful shutdown
+const shutdown = async () => {
+  console.log('Shutting down...');
+  await wpaDaemon.stop();
+  process.exit(0);
+};
 
-app.listen(Number(PORT), HOST, () => {
-  console.log(`wpa-mcp server listening on http://${HOST}:${PORT}`);
-  console.log(`MCP endpoint: http://${HOST}:${PORT}/mcp`);
-  console.log(`Health check: http://${HOST}:${PORT}/health`);
-});
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+// Start server
+const startServer = async () => {
+  const PORT = process.env.PORT || 3000;
+  const HOST = process.env.HOST || '0.0.0.0';
+
+  // Start wpa_supplicant daemon
+  try {
+    await wpaDaemon.start();
+  } catch (error) {
+    console.error('Failed to start wpa_supplicant:', error);
+    console.error('Continuing without managed wpa_supplicant...');
+  }
+
+  app.listen(Number(PORT), HOST, () => {
+    console.log(`wpa-mcp server listening on http://${HOST}:${PORT}`);
+    console.log(`MCP endpoint: http://${HOST}:${PORT}/mcp`);
+    console.log(`Health check: http://${HOST}:${PORT}/health`);
+  });
+};
+
+startServer();

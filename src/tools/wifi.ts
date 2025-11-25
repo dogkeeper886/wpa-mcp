@@ -1,14 +1,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { WpaCli } from '../lib/wpa-cli.js';
+import { WpaDaemon, LogFilter } from '../lib/wpa-daemon.js';
 
 const DEFAULT_INTERFACE = process.env.WIFI_INTERFACE || 'wlan0';
 
-export function registerWifiTools(server: McpServer): void {
+export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
   // wifi_scan - Scan for available networks
   server.tool(
     'wifi_scan',
-    'Scan for available WiFi networks',
+    'Scan for available WiFi networks. Returns list of nearby networks with SSID, BSSID, signal strength, and security type (WPA-PSK, WPA-EAP, etc.).',
     {
       interface: z
         .string()
@@ -17,6 +18,7 @@ export function registerWifiTools(server: McpServer): void {
     },
     async ({ interface: iface }) => {
       try {
+        daemon?.markCommandStart();
         const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
         const networks = await wpa.scan();
 
@@ -57,7 +59,7 @@ export function registerWifiTools(server: McpServer): void {
   // wifi_connect - Connect to a network
   server.tool(
     'wifi_connect',
-    'Connect to a WiFi network',
+    'Connect to a WPA-PSK or open WiFi network. For WPA2-Enterprise/802.1X networks (like corporate WiFi requiring username/password), use wifi_connect_eap instead. Returns connection status after 5 second wait.',
     {
       ssid: z.string().describe('Network SSID to connect to'),
       password: z
@@ -71,6 +73,7 @@ export function registerWifiTools(server: McpServer): void {
     },
     async ({ ssid, password, interface: iface }) => {
       try {
+        daemon?.markCommandStart();
         const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
         await wpa.connect(ssid, password);
 
@@ -114,7 +117,7 @@ export function registerWifiTools(server: McpServer): void {
   // wifi_connect_eap - Connect to a WPA2-Enterprise (802.1X) network
   server.tool(
     'wifi_connect_eap',
-    'Connect to a WPA2-Enterprise (802.1X) WiFi network using EAP authentication',
+    'Connect to a WPA2-Enterprise (802.1X) WiFi network using EAP authentication. Used for corporate/enterprise networks requiring username and password (not just a shared password). Common EAP methods: PEAP (most common, tunneled authentication), TTLS (similar to PEAP), TLS (certificate-based). If connection fails, use wifi_get_debug_logs with filter="eap" to diagnose.',
     {
       ssid: z.string().describe('Network SSID to connect to'),
       identity: z.string().describe('Username/identity for EAP authentication'),
@@ -134,6 +137,7 @@ export function registerWifiTools(server: McpServer): void {
     },
     async ({ ssid, identity, password, eap_method, phase2, interface: iface }) => {
       try {
+        daemon?.markCommandStart();
         const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
         await wpa.connectEap(
           ssid,
@@ -183,7 +187,7 @@ export function registerWifiTools(server: McpServer): void {
   // wifi_disconnect - Disconnect from current network
   server.tool(
     'wifi_disconnect',
-    'Disconnect from the current WiFi network',
+    'Disconnect from the current WiFi network. Use before connecting to a different network or to troubleshoot connection issues.',
     {
       interface: z
         .string()
@@ -192,6 +196,7 @@ export function registerWifiTools(server: McpServer): void {
     },
     async ({ interface: iface }) => {
       try {
+        daemon?.markCommandStart();
         const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
         await wpa.disconnect();
 
@@ -226,7 +231,7 @@ export function registerWifiTools(server: McpServer): void {
   // wifi_status - Get current connection status
   server.tool(
     'wifi_status',
-    'Get current WiFi connection status',
+    'Get current WiFi connection status. Returns: wpa_state (COMPLETED=connected, DISCONNECTED, SCANNING, etc.), ssid (network name), bssid (access point MAC), ip_address, key_mgmt (security type), and for EAP networks: eap_state, EAP_method, identity.',
     {
       interface: z
         .string()
@@ -274,7 +279,7 @@ export function registerWifiTools(server: McpServer): void {
   // wifi_list_networks - List saved networks
   server.tool(
     'wifi_list_networks',
-    'List saved WiFi networks',
+    'List saved/configured WiFi networks in wpa_supplicant. Returns network_id (used for wifi_forget), ssid, bssid, and flags (CURRENT=connected, DISABLED, TEMP-DISABLED=authentication failed).',
     {
       interface: z
         .string()
@@ -323,7 +328,7 @@ export function registerWifiTools(server: McpServer): void {
   // wifi_forget - Remove a saved network
   server.tool(
     'wifi_forget',
-    'Remove/forget a saved WiFi network',
+    'Remove/forget a saved WiFi network from wpa_supplicant configuration. Use wifi_list_networks first to get the network_id. Useful for removing networks with wrong credentials before re-adding.',
     {
       network_id: z.number().describe('Network ID to remove (from list_networks)'),
       interface: z
@@ -333,6 +338,7 @@ export function registerWifiTools(server: McpServer): void {
     },
     async ({ network_id, interface: iface }) => {
       try {
+        daemon?.markCommandStart();
         const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
         await wpa.removeNetwork(network_id);
 
@@ -367,7 +373,7 @@ export function registerWifiTools(server: McpServer): void {
   // wifi_reconnect - Reconnect to the current network
   server.tool(
     'wifi_reconnect',
-    'Reconnect to the current WiFi network',
+    'Reconnect to the current or most recently used WiFi network. Useful after temporary disconnection or to retry authentication. Different from wifi_connect - does not require SSID/password as it uses saved configuration.',
     {
       interface: z
         .string()
@@ -376,6 +382,7 @@ export function registerWifiTools(server: McpServer): void {
     },
     async ({ interface: iface }) => {
       try {
+        daemon?.markCommandStart();
         const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
         await wpa.reconnect();
 
@@ -419,7 +426,7 @@ export function registerWifiTools(server: McpServer): void {
   // wifi_eap_diagnostics - Get EAP/802.1X diagnostic information
   server.tool(
     'wifi_eap_diagnostics',
-    'Get detailed EAP/802.1X authentication diagnostics for troubleshooting',
+    'Get detailed EAP/802.1X authentication diagnostics from wpa_supplicant. Returns: eap_state (IDLE, IDENTITY, METHOD, SUCCESS, FAILURE), selectedMethod, methodState, decision (FAIL, COND_SUCC, UNCOND_SUCC), reqMethod. Use when wifi_connect_eap fails - eap_state=IDLE with decision=FAIL indicates server rejected credentials.',
     {
       interface: z
         .string()
@@ -466,4 +473,74 @@ export function registerWifiTools(server: McpServer): void {
       }
     }
   );
+
+  // wifi_get_debug_logs - Get wpa_supplicant debug logs (only if daemon is managed)
+  if (daemon) {
+    server.tool(
+      'wifi_get_debug_logs',
+      'Get wpa_supplicant debug logs for troubleshooting. Use filter parameter to focus on specific log types: "eap" for 802.1X/EAP authentication issues (identity rejection, credential failures, certificate problems), "state" for connection flow (shows state transitions like SCANNING->AUTHENTICATING->ASSOCIATED), "scan" for network discovery issues, "error" for failures and timeouts.',
+      {
+        filter: z
+          .enum(['all', 'eap', 'state', 'scan', 'error'])
+          .optional()
+          .describe(
+            'Log filter: all (default), eap (802.1X/EAP authentication - use for credential/identity issues), state (connection state transitions - use to see connection flow), scan (network discovery), error (failures and timeouts)'
+          ),
+        lines: z
+          .number()
+          .optional()
+          .describe(
+            'Number of recent lines to return when since_last_command is false (default: 100)'
+          ),
+        since_last_command: z
+          .boolean()
+          .optional()
+          .describe(
+            'Only return logs since last WiFi command (default: true). Set to false to get historical logs.'
+          ),
+      },
+      async ({ filter, lines, since_last_command }) => {
+        try {
+          const filterType: LogFilter = filter || 'all';
+          const logs = await daemon.getFilteredLogs(
+            filterType,
+            since_last_command !== false,
+            lines || 100
+          );
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    logFile: daemon.getLogFile(),
+                    filter: filterType,
+                    lineCount: logs.length,
+                    logs: logs,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  success: false,
+                  error: error instanceof Error ? error.message : String(error),
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+  }
 }
