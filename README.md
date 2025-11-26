@@ -22,7 +22,7 @@ npm run build
 WIFI_INTERFACE=wlan0 npm start
 
 # 4. Register with Claude Code (in another terminal)
-claude mcp add wpa-mcp --transport http --url http://localhost:3000/mcp
+claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
 ```
 
 ## Quick Start (Remote Deployment)
@@ -181,7 +181,7 @@ npx playwright install chromium
 Register the MCP server with Claude Code:
 
 ```bash
-claude mcp add wpa-mcp --transport http --url http://localhost:3000/mcp
+claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
 ```
 
 Then start a new Claude Code session to use the WiFi tools.
