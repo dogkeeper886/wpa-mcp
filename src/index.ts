@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -5,6 +6,7 @@ import { registerWifiTools } from './tools/wifi.js';
 import { registerBrowserTools } from './tools/browser.js';
 import { registerConnectivityTools } from './tools/connectivity.js';
 import { WpaDaemon } from './lib/wpa-daemon.js';
+import { DhcpManager } from './lib/dhcp-manager.js';
 
 const app = express();
 app.use(express.json());
@@ -16,6 +18,9 @@ const wpaDaemon = new WpaDaemon(
   parseInt(process.env.WPA_DEBUG_LEVEL || '2', 10)
 );
 
+// Create DHCP manager
+const dhcpManager = new DhcpManager();
+
 // Create MCP server
 const mcpServer = new McpServer({
   name: 'wpa-mcp',
@@ -23,7 +28,7 @@ const mcpServer = new McpServer({
 });
 
 // Register all tools
-registerWifiTools(mcpServer, wpaDaemon);
+registerWifiTools(mcpServer, wpaDaemon, dhcpManager);
 registerBrowserTools(mcpServer);
 registerConnectivityTools(mcpServer);
 
@@ -56,6 +61,7 @@ app.get('/health', (_req: Request, res: Response) => {
 // Graceful shutdown
 const shutdown = async () => {
   console.log('Shutting down...');
+  await dhcpManager.stop();
   await wpaDaemon.stop();
   process.exit(0);
 };

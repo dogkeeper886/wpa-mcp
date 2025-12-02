@@ -2,10 +2,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { WpaCli } from '../lib/wpa-cli.js';
 import { WpaDaemon, LogFilter } from '../lib/wpa-daemon.js';
+import { DhcpManager } from '../lib/dhcp-manager.js';
 
 const DEFAULT_INTERFACE = process.env.WIFI_INTERFACE || 'wlan0';
 
-export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
+export function registerWifiTools(
+  server: McpServer,
+  daemon?: WpaDaemon,
+  dhcpManager?: DhcpManager
+): void {
   // wifi_scan - Scan for available networks
   server.tool(
     'wifi_scan',
@@ -74,12 +79,36 @@ export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
     async ({ ssid, password, interface: iface }) => {
       try {
         daemon?.markCommandStart();
-        const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
+        const targetIface = iface || DEFAULT_INTERFACE;
+        const wpa = new WpaCli(targetIface);
         await wpa.connect(ssid, password);
 
-        // Wait a bit and check status
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-        const status = await wpa.status();
+        // Poll for connection completion (15 seconds)
+        const { reached, status } = await wpa.waitForState('COMPLETED', 15000);
+
+        if (reached && dhcpManager) {
+          // Connection successful, get IP address via DHCP
+          await dhcpManager.start(targetIface);
+          const ipAddress = await dhcpManager.waitForIp(10000);
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    message: `Connected to ${ssid}`,
+                    status: { ...status, ipAddress },
+                    dhcp: ipAddress ? 'obtained' : 'timeout',
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
 
         return {
           content: [
@@ -87,8 +116,10 @@ export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
               type: 'text',
               text: JSON.stringify(
                 {
-                  success: true,
-                  message: `Connecting to ${ssid}`,
+                  success: reached,
+                  message: reached
+                    ? `Connected to ${ssid}`
+                    : `Connecting to ${ssid} (connection timeout)`,
                   status: status,
                 },
                 null,
@@ -138,7 +169,8 @@ export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
     async ({ ssid, identity, password, eap_method, phase2, interface: iface }) => {
       try {
         daemon?.markCommandStart();
-        const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
+        const targetIface = iface || DEFAULT_INTERFACE;
+        const wpa = new WpaCli(targetIface);
         await wpa.connectEap(
           ssid,
           identity,
@@ -147,9 +179,32 @@ export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
           phase2 || 'MSCHAPV2'
         );
 
-        // Wait a bit and check status
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-        const status = await wpa.status();
+        // Poll for connection completion (15 seconds)
+        const { reached, status } = await wpa.waitForState('COMPLETED', 15000);
+
+        if (reached && dhcpManager) {
+          // Connection successful, get IP address via DHCP
+          await dhcpManager.start(targetIface);
+          const ipAddress = await dhcpManager.waitForIp(10000);
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    message: `Connected to ${ssid} using EAP-${eap_method || 'PEAP'}`,
+                    status: { ...status, ipAddress },
+                    dhcp: ipAddress ? 'obtained' : 'timeout',
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
 
         return {
           content: [
@@ -157,8 +212,10 @@ export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
               type: 'text',
               text: JSON.stringify(
                 {
-                  success: true,
-                  message: `Connecting to ${ssid} using EAP-${eap_method || 'PEAP'}`,
+                  success: reached,
+                  message: reached
+                    ? `Connected to ${ssid} using EAP-${eap_method || 'PEAP'}`
+                    : `Connecting to ${ssid} (connection timeout)`,
                   status: status,
                 },
                 null,
@@ -198,6 +255,12 @@ export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
       try {
         daemon?.markCommandStart();
         const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
+
+        // Stop DHCP and flush IP first
+        if (dhcpManager) {
+          await dhcpManager.stop();
+        }
+
         await wpa.disconnect();
 
         return {
@@ -207,6 +270,8 @@ export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
               text: JSON.stringify({
                 success: true,
                 message: 'Disconnected from WiFi',
+                dhcpReleased: true,
+                ipFlushed: true,
               }),
             },
           ],
@@ -383,12 +448,36 @@ export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
     async ({ interface: iface }) => {
       try {
         daemon?.markCommandStart();
-        const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
+        const targetIface = iface || DEFAULT_INTERFACE;
+        const wpa = new WpaCli(targetIface);
         await wpa.reconnect();
 
-        // Wait and check status
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        const status = await wpa.status();
+        // Poll for connection completion (15 seconds)
+        const { reached, status } = await wpa.waitForState('COMPLETED', 15000);
+
+        if (reached && dhcpManager) {
+          // Connection successful, get IP address via DHCP
+          await dhcpManager.start(targetIface);
+          const ipAddress = await dhcpManager.waitForIp(10000);
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    message: 'Reconnected to WiFi',
+                    status: { ...status, ipAddress },
+                    dhcp: ipAddress ? 'obtained' : 'timeout',
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
 
         return {
           content: [
@@ -396,8 +485,10 @@ export function registerWifiTools(server: McpServer, daemon?: WpaDaemon): void {
               type: 'text',
               text: JSON.stringify(
                 {
-                  success: true,
-                  message: 'Reconnecting to WiFi',
+                  success: reached,
+                  message: reached
+                    ? 'Reconnected to WiFi'
+                    : 'Reconnecting to WiFi (connection timeout)',
                   status: status,
                 },
                 null,

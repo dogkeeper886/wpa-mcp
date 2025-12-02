@@ -234,6 +234,25 @@ export class WpaCli {
     return status;
   }
 
+  async waitForState(
+    targetState: string,
+    timeoutMs: number = 15000,
+    pollIntervalMs: number = 500
+  ): Promise<{ reached: boolean; status: ConnectionStatus }> {
+    const maxAttempts = Math.ceil(timeoutMs / pollIntervalMs);
+
+    for (let i = 0; i < maxAttempts; i++) {
+      const status = await this.status();
+      if (status.wpaState === targetState) {
+        return { reached: true, status };
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    const finalStatus = await this.status();
+    return { reached: finalStatus.wpaState === targetState, status: finalStatus };
+  }
+
   async listNetworks(): Promise<SavedNetwork[]> {
     const output = await this.run('list_networks');
     const lines = output.split('\n').slice(1); // Skip header
