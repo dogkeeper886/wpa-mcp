@@ -2,7 +2,7 @@
 
 MCP (Model Context Protocol) Server for WiFi control via wpa_supplicant.
 
-This server runs on a remote Linux host and allows Claude/MCP clients to:
+This server runs on a Linux host and allows Claude/MCP clients to:
 - Connect/disconnect WiFi networks (WPA-PSK and WPA2-Enterprise/802.1X)
 - Scan for available networks
 - Debug connection issues with filtered wpa_supplicant logs
@@ -25,59 +25,28 @@ WIFI_INTERFACE=wlan0 npm start
 claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
 ```
 
-## Quick Start (Remote Deployment)
-
-```bash
-# 1. Configure deployment
-cp .env.example .env
-# Edit .env with your remote host details
-
-# 2. First time setup (deploy + install + build on remote)
-make setup
-
-# 3. Start server on remote
-make start
-```
-
 ## Configuration
 
 Copy `.env.example` to `.env` and configure:
 
 ```bash
-# Server settings
 PORT=3000
 HOST=0.0.0.0
 WIFI_INTERFACE=wlan0
-
-# Deployment
-REMOTE_HOST=user@192.168.1.100
-REMOTE_DIR=~/wpa-mcp
 ```
 
-## Deployment (Makefile)
+## Makefile Commands
 
 | Command | Description |
 |---------|-------------|
-| `make setup` | First time: deploy + install + build |
-| `make deploy` | Rsync source to remote |
-| `make install` | npm install on remote |
-| `make build` | npm run build on remote |
-| `make start` | Start server on remote |
-| `make stop` | Stop server on remote |
-| `make restart` | Restart remote server |
-| `make logs` | Tail remote logs |
+| `make start` | Start server in background |
+| `make stop` | Stop server |
+| `make restart` | Restart server |
+| `make logs` | Tail log file |
 | `make status` | Check if server is running |
-| `make clean` | Remove dist/ on remote |
+| `make clean` | Remove dist/ |
 
-### Development Workflow
-
-```bash
-# Make changes locally, then:
-make deploy build restart
-
-# Monitor logs:
-make logs
-```
+For build/install, use npm directly: `npm install`, `npm run build`, `npm run start`.
 
 ## wpa_supplicant Setup
 
@@ -241,7 +210,7 @@ Add to your `claude_desktop_config.json`:
 
 ## Playwright Scripts
 
-Scripts are stored in `~/.config/wpa-mcp/scripts/` on the remote host.
+Scripts are stored in `~/.config/wpa-mcp/scripts/`.
 
 ### Script Format
 
