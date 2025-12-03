@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { WpaCli } from '../lib/wpa-cli.js';
 import { WpaDaemon, LogFilter } from '../lib/wpa-daemon.js';
 import { DhcpManager } from '../lib/dhcp-manager.js';
+import type { MacAddressConfig, MacAddressMode, PreassocMacMode } from '../types.js';
 
 const DEFAULT_INTERFACE = process.env.WIFI_INTERFACE || 'wlan0';
 
@@ -64,7 +65,7 @@ export function registerWifiTools(
   // wifi_connect - Connect to a network
   server.tool(
     'wifi_connect',
-    'Connect to a WPA-PSK or open WiFi network. For WPA2-Enterprise/802.1X networks (like corporate WiFi requiring username/password), use wifi_connect_eap instead. Returns connection status after 5 second wait.',
+    'Connect to a WPA-PSK or open WiFi network. Supports MAC address randomization for privacy. For WPA2-Enterprise/802.1X networks (like corporate WiFi requiring username/password), use wifi_connect_eap instead. Returns connection status after 5 second wait.',
     {
       ssid: z.string().describe('Network SSID to connect to'),
       password: z
@@ -75,13 +76,53 @@ export function registerWifiTools(
         .string()
         .optional()
         .describe('WiFi interface name (default: wlan0)'),
+      mac_mode: z
+        .enum(['device', 'random', 'persistent-random', 'specific'])
+        .optional()
+        .describe(
+          'MAC address mode: device (real MAC), random (new each connection), ' +
+          'persistent-random (same random across reboots), specific (custom MAC)'
+        ),
+      mac_address: z
+        .string()
+        .optional()
+        .describe(
+          'Specific MAC address to use (required when mac_mode is "specific"). ' +
+          'Format: aa:bb:cc:dd:ee:ff'
+        ),
+      preassoc_mac_mode: z
+        .enum(['disabled', 'random', 'persistent-random'])
+        .optional()
+        .describe(
+          'MAC randomization during scanning: disabled (real MAC), random, ' +
+          'or persistent-random'
+        ),
+      rand_addr_lifetime: z
+        .number()
+        .optional()
+        .describe(
+          'Seconds before rotating random MAC address (default: 60). ' +
+          'Only applies when mac_mode is random or persistent-random.'
+        ),
     },
-    async ({ ssid, password, interface: iface }) => {
+    async ({ ssid, password, interface: iface, mac_mode, mac_address, preassoc_mac_mode, rand_addr_lifetime }) => {
       try {
         daemon?.markCommandStart();
         const targetIface = iface || DEFAULT_INTERFACE;
         const wpa = new WpaCli(targetIface);
-        await wpa.connect(ssid, password);
+
+        // Build MAC config if any MAC parameters provided
+        let macConfig: MacAddressConfig | undefined;
+        if (mac_mode) {
+          macConfig = {
+            mode: mac_mode as MacAddressMode,
+            address: mac_address,
+            preassocMode: preassoc_mac_mode as PreassocMacMode | undefined,
+            randAddrLifetime: rand_addr_lifetime,
+          };
+        }
+
+        await wpa.connect(ssid, password, macConfig);
 
         // Poll for connection completion (15 seconds)
         const { reached, status } = await wpa.waitForState('COMPLETED', 15000);
@@ -148,7 +189,7 @@ export function registerWifiTools(
   // wifi_connect_eap - Connect to a WPA2-Enterprise (802.1X) network
   server.tool(
     'wifi_connect_eap',
-    'Connect to a WPA2-Enterprise (802.1X) WiFi network using EAP authentication. Used for corporate/enterprise networks requiring username and password (not just a shared password). Common EAP methods: PEAP (most common, tunneled authentication), TTLS (similar to PEAP), TLS (certificate-based). If connection fails, use wifi_get_debug_logs with filter="eap" to diagnose.',
+    'Connect to a WPA2-Enterprise (802.1X) WiFi network using EAP authentication. Supports MAC address randomization for privacy. Used for corporate/enterprise networks requiring username and password (not just a shared password). Common EAP methods: PEAP (most common, tunneled authentication), TTLS (similar to PEAP), TLS (certificate-based). If connection fails, use wifi_get_debug_logs with filter="eap" to diagnose.',
     {
       ssid: z.string().describe('Network SSID to connect to'),
       identity: z.string().describe('Username/identity for EAP authentication'),
@@ -165,18 +206,59 @@ export function registerWifiTools(
         .string()
         .optional()
         .describe('WiFi interface name (default: wlan0)'),
+      mac_mode: z
+        .enum(['device', 'random', 'persistent-random', 'specific'])
+        .optional()
+        .describe(
+          'MAC address mode: device (real MAC), random (new each connection), ' +
+          'persistent-random (same random across reboots), specific (custom MAC)'
+        ),
+      mac_address: z
+        .string()
+        .optional()
+        .describe(
+          'Specific MAC address to use (required when mac_mode is "specific"). ' +
+          'Format: aa:bb:cc:dd:ee:ff'
+        ),
+      preassoc_mac_mode: z
+        .enum(['disabled', 'random', 'persistent-random'])
+        .optional()
+        .describe(
+          'MAC randomization during scanning: disabled (real MAC), random, ' +
+          'or persistent-random'
+        ),
+      rand_addr_lifetime: z
+        .number()
+        .optional()
+        .describe(
+          'Seconds before rotating random MAC address (default: 60). ' +
+          'Only applies when mac_mode is random or persistent-random.'
+        ),
     },
-    async ({ ssid, identity, password, eap_method, phase2, interface: iface }) => {
+    async ({ ssid, identity, password, eap_method, phase2, interface: iface, mac_mode, mac_address, preassoc_mac_mode, rand_addr_lifetime }) => {
       try {
         daemon?.markCommandStart();
         const targetIface = iface || DEFAULT_INTERFACE;
         const wpa = new WpaCli(targetIface);
+
+        // Build MAC config if any MAC parameters provided
+        let macConfig: MacAddressConfig | undefined;
+        if (mac_mode) {
+          macConfig = {
+            mode: mac_mode as MacAddressMode,
+            address: mac_address,
+            preassocMode: preassoc_mac_mode as PreassocMacMode | undefined,
+            randAddrLifetime: rand_addr_lifetime,
+          };
+        }
+
         await wpa.connectEap(
           ssid,
           identity,
           password,
           eap_method || 'PEAP',
-          phase2 || 'MSCHAPV2'
+          phase2 || 'MSCHAPV2',
+          macConfig
         );
 
         // Poll for connection completion (15 seconds)

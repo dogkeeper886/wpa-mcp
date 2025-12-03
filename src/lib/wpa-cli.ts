@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import type { Network, SavedNetwork, ConnectionStatus } from '../types.js';
+import type { Network, SavedNetwork, ConnectionStatus, MacAddressConfig } from '../types.js';
+import { macModeToWpaValue, preassocModeToWpaValue } from './mac-utils.js';
 
 const execAsync = promisify(exec);
 
@@ -40,7 +41,7 @@ export class WpaCli {
       });
   }
 
-  async connect(ssid: string, psk?: string): Promise<void> {
+  async connect(ssid: string, psk?: string, macConfig?: MacAddressConfig): Promise<void> {
     // Add new network
     const networkIdStr = await this.run('add_network');
     const networkId = parseInt(networkIdStr, 10);
@@ -76,6 +77,11 @@ export class WpaCli {
         }
       }
 
+      // Apply MAC address configuration if provided
+      if (macConfig) {
+        await this.applyMacConfig(networkId, macConfig);
+      }
+
       // Enable network
       const enableResult = await this.run(`enable_network ${networkId}`);
       if (!enableResult.includes('OK')) {
@@ -102,7 +108,8 @@ export class WpaCli {
     identity: string,
     password: string,
     eapMethod: string = 'PEAP',
-    phase2: string = 'MSCHAPV2'
+    phase2: string = 'MSCHAPV2',
+    macConfig?: MacAddressConfig
   ): Promise<void> {
     // Add new network
     const networkIdStr = await this.run('add_network');
@@ -163,6 +170,11 @@ export class WpaCli {
         }
       }
 
+      // Apply MAC address configuration if provided
+      if (macConfig) {
+        await this.applyMacConfig(networkId, macConfig);
+      }
+
       // Enable network
       const enableResult = await this.run(`enable_network ${networkId}`);
       if (!enableResult.includes('OK')) {
@@ -181,6 +193,41 @@ export class WpaCli {
       // Clean up on failure
       await this.run(`remove_network ${networkId}`).catch(() => {});
       throw error;
+    }
+  }
+
+  private async applyMacConfig(networkId: number, config: MacAddressConfig): Promise<void> {
+    // Set mac_addr parameter
+    const macValue = macModeToWpaValue(config.mode, config.address);
+    const macResult = await this.run(
+      `set_network ${networkId} mac_addr ${macValue}`
+    );
+    if (!macResult.includes('OK')) {
+      throw new Error(`Failed to set mac_addr: ${macResult}`);
+    }
+
+    // Set preassoc_mac_addr if specified
+    if (config.preassocMode) {
+      const preassocValue = preassocModeToWpaValue(config.preassocMode);
+      const preassocResult = await this.run(
+        `set_network ${networkId} preassoc_mac_addr ${preassocValue}`
+      );
+      if (!preassocResult.includes('OK')) {
+        throw new Error(`Failed to set preassoc_mac_addr: ${preassocResult}`);
+      }
+    }
+
+    // Set rand_addr_lifetime if specified (only relevant for random modes)
+    if (
+      config.randAddrLifetime !== undefined &&
+      (config.mode === 'random' || config.mode === 'persistent-random')
+    ) {
+      const lifetimeResult = await this.run(
+        `set_network ${networkId} rand_addr_lifetime ${config.randAddrLifetime}`
+      );
+      if (!lifetimeResult.includes('OK')) {
+        throw new Error(`Failed to set rand_addr_lifetime: ${lifetimeResult}`);
+      }
     }
   }
 
@@ -227,6 +274,9 @@ export class WpaCli {
           break;
         case 'key_mgmt':
           status.keyManagement = value;
+          break;
+        case 'address':
+          status.address = value;
           break;
       }
     }

@@ -21,5 +21,8 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# PID files
+*.pid
+
 # Test coverage
 coverage/

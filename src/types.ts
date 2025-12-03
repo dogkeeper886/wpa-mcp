@@ -21,6 +21,26 @@ export interface ConnectionStatus {
   ipAddress?: string;
   frequency?: number;
   keyManagement?: string;
+  address?: string; // Current MAC address
+}
+
+// MAC Address Randomization Types
+export type MacAddressMode =
+  | 'device'            // Use real device MAC (wpa_supplicant value: 0)
+  | 'random'            // New random MAC each connection (wpa_supplicant value: 1)
+  | 'persistent-random' // Same random MAC across reboots (wpa_supplicant value: 2)
+  | 'specific';         // User-provided MAC address
+
+export type PreassocMacMode =
+  | 'disabled'          // Use real MAC during scan (wpa_supplicant value: 0)
+  | 'random'            // Random MAC during scan (wpa_supplicant value: 1)
+  | 'persistent-random';// Persistent random during scan (wpa_supplicant value: 2)
+
+export interface MacAddressConfig {
+  mode: MacAddressMode;
+  address?: string;            // Required only when mode is 'specific'
+  preassocMode?: PreassocMacMode;
+  randAddrLifetime?: number;   // Seconds before rotating random MAC (default: 60)
 }
 
 // Connectivity Types
