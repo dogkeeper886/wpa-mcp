@@ -1,15 +1,95 @@
 # wpa-mcp
 
-MCP (Model Context Protocol) Server for WiFi control via wpa_supplicant.
+**Status:** Complete
+**Created:** 2024
 
-This server runs on a Linux host and allows Claude/MCP clients to:
-- Connect/disconnect WiFi networks (WPA-PSK and WPA2-Enterprise/802.1X)
-- Scan for available networks
-- Debug connection issues with filtered wpa_supplicant logs
-- Check network connectivity and captive portals
-- Run Playwright browser automation scripts
+---
 
-## Quick Start (Local)
+## Goal
+
+MCP (Model Context Protocol) Server for WiFi control via wpa_supplicant. This server runs on a Linux host and allows Claude/MCP clients to connect/disconnect WiFi networks, scan for available networks, debug connection issues, check connectivity, and automate captive portal logins via Playwright scripts.
+
+---
+
+## Design Flow
+
+### Overview
+
+The server exposes MCP tools that Claude can invoke to manage WiFi connections. It wraps wpa_supplicant commands and provides structured responses.
+
+### Flow Steps
+
+1. **Entry** - MCP client (Claude Desktop/Claude Code) sends tool requests via HTTP POST to `/mcp`
+2. **Processing** - Express server routes to StreamableHTTPServerTransport, which dispatches to registered tool handlers
+3. **Execution** - Tool handlers invoke wpa_cli commands, run dhclient for DHCP, or execute Playwright scripts
+4. **Response** - JSON results returned to MCP client with success/failure status
+
+---
+
+## Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              ARCHITECTURE                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                    ┌─────────────────────────────────┐
+                    │         MCP Client              │
+                    │  (Claude Desktop / Claude Code) │
+                    └───────────────┬─────────────────┘
+                                    │ HTTP POST /mcp
+                                    ▼
+                    ┌─────────────────────────────────┐
+                    │      Express + MCP Server       │
+                    │        (src/index.ts)           │
+                    └───────────────┬─────────────────┘
+                                    │
+        ┌───────────────────────────┼───────────────────────────┐
+        │                           │                           │
+        ▼                           ▼                           ▼
+┌───────────────────┐     ┌───────────────────┐     ┌───────────────────┐
+│   WiFi Tools      │     │  Browser Tools    │     │ Connectivity Tools│
+│  (src/tools/      │     │  (src/tools/      │     │  (src/tools/      │
+│   wifi.ts)        │     │   browser.ts)     │     │   connectivity.ts)│
+└─────────┬─────────┘     └─────────┬─────────┘     └─────────┬─────────┘
+          │                         │                         │
+          ▼                         ▼                         ▼
+┌───────────────────┐     ┌───────────────────┐     ┌───────────────────┐
+│  wpa-cli.ts       │     │ playwright-       │     │  network-check.ts │
+│  wpa-daemon.ts    │     │  runner.ts        │     │  (ping, DNS, HTTP)│
+│  dhcp-manager.ts  │     └───────────────────┘     └───────────────────┘
+│  mac-utils.ts     │
+└─────────┬─────────┘
+          │
+          ▼
+┌───────────────────┐
+│  wpa_supplicant   │
+│    (system)       │
+└───────────────────┘
+```
+
+### Tool Coverage Matrix
+
+```
+┌────────────────────┬───────────┬───────────┬───────────────┐
+│ Capability         │ WiFi      │ Browser   │ Connectivity  │
+├────────────────────┼───────────┼───────────┼───────────────┤
+│ Network Scan       │     ✓     │           │               │
+│ WPA-PSK Connect    │     ✓     │           │               │
+│ WPA2-EAP Connect   │     ✓     │           │               │
+│ MAC Randomization  │     ✓     │           │               │
+│ Connection Status  │     ✓     │           │               │
+│ Debug Logs         │     ✓     │           │               │
+│ Captive Portal     │           │     ✓     │       ✓       │
+│ Script Automation  │           │     ✓     │               │
+│ Ping/DNS           │           │           │       ✓       │
+│ Internet Check     │           │           │       ✓       │
+└────────────────────┴───────────┴───────────┴───────────────┘
+```
+
+---
+
+## Quick Start
 
 ```bash
 # 1. Install dependencies and build
@@ -47,6 +127,8 @@ WIFI_INTERFACE=wlan0
 | `make clean` | Remove dist/ |
 
 For build/install, use npm directly: `npm install`, `npm run build`, `npm run start`.
+
+---
 
 ## wpa_supplicant Setup
 
@@ -145,6 +227,8 @@ sudo ip link set wlan0 up
 npx playwright install chromium
 ```
 
+---
+
 ## Claude Code Configuration
 
 Register the MCP server with Claude Code:
@@ -168,6 +252,8 @@ Add to your `claude_desktop_config.json`:
   }
 }
 ```
+
+---
 
 ## Available MCP Tools
 
@@ -208,6 +294,8 @@ Add to your `claude_desktop_config.json`:
 | `network_check_captive` | Detect captive portal |
 | `network_dns_lookup` | Perform DNS lookup |
 
+---
+
 ## Playwright Scripts
 
 Scripts are stored in `~/.config/wpa-mcp/scripts/`.
@@ -234,6 +322,8 @@ Via MCP tool:
 ```
 browser_run_script("my-portal", { username: "guest", password: "wifi123" })
 ```
+
+---
 
 ## Example Usage
 
@@ -289,6 +379,8 @@ Claude: [calls browser_run_script with script_name="hotel-login", variables={roo
 → Executes Playwright script to handle login
 ```
 
+---
+
 ## Debug Log Filters
 
 The `wifi_get_debug_logs` tool supports these filters to help diagnose specific issues:
@@ -302,6 +394,8 @@ The `wifi_get_debug_logs` tool supports these filters to help diagnose specific 
 | `error` | Failures | Timeouts, authentication failures, TEMP-DISABLED events |
 
 By default, logs are filtered to show only entries since the last WiFi command, making it easy to correlate actions with results.
+
+---
 
 ## API Endpoints
 
