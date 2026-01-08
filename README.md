@@ -11,22 +11,87 @@ MCP (Model Context Protocol) Server for WiFi control via wpa_supplicant. This se
 
 ---
 
-## Design Flow
+## User Flow
 
-### Overview
+Users interact with WiFi networks through natural language conversations with Claude. Claude translates requests into MCP tool calls.
 
-The server exposes MCP tools that Claude can invoke to manage WiFi connections. It wraps wpa_supplicant commands and provides structured responses.
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              USER FLOW                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-### Flow Steps
-
-1. **Entry** - MCP client (Claude Desktop/Claude Code) sends tool requests via HTTP POST to `/mcp`
-2. **Processing** - Express server routes to StreamableHTTPServerTransport, which dispatches to registered tool handlers
-3. **Execution** - Tool handlers invoke wpa_cli commands, run dhclient for DHCP, or execute Playwright scripts
-4. **Response** - JSON results returned to MCP client with success/failure status
+    ┌─────────┐
+    │  User   │
+    └────┬────┘
+         │ "Connect to CoffeeShop WiFi"
+         ▼
+    ┌─────────────────────────────────┐
+    │           Claude                │
+    │  (Claude Code/Claude Desktop)   │
+    └───────────────┬─────────────────┘
+                    │
+                    ▼
+         ┌─────────────────────┐
+         │  What type of WiFi? │
+         └──────────┬──────────┘
+                    │
+    ┌───────────────┼───────────────┐
+    │               │               │
+    ▼               ▼               ▼
+┌───────┐     ┌───────────┐    ┌────────────┐
+│ Open  │     │  WPA-PSK  │    │ WPA2-EAP   │
+│Network│     │ (Password)│    │(Enterprise)│
+└───┬───┘     └─────┬─────┘    └──────┬─────┘
+    │               │                 │
+    ▼               ▼                 ▼
+┌─────────────────────────────────────────────┐
+│              wifi_connect /                 │
+│              wifi_connect_eap               │
+└──────────────────────┬──────────────────────┘
+                       │
+                       ▼
+              ┌────────────────┐
+              │   Connected?   │
+              └───────┬────────┘
+                      │
+         ┌────────────┴────────────┐
+         │                         │
+         ▼                         ▼
+    ┌─────────┐              ┌───────────┐
+    │   Yes   │              │    No     │
+    └────┬────┘              └─────┬─────┘
+         │                         │
+         ▼                         ▼
+┌─────────────────┐      ┌─────────────────────┐
+│ Check Internet  │      │ Debug with logs     │
+│ network_check_  │      │ wifi_get_debug_logs │
+│ internet        │      │ wifi_eap_diagnostics│
+└────────┬────────┘      └─────────────────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Captive Portal? │
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    │         │
+    ▼         ▼
+┌──────┐  ┌─────────────────────┐
+│  No  │  │ Yes - Run Playwright│
+│      │  │ browser_run_script  │
+└──┬───┘  └──────────┬──────────┘
+   │                 │
+   └────────┬────────┘
+            │
+            ▼
+    ┌───────────────┐
+    │   Online!     │
+    └───────────────┘
+```
 
 ---
 
-## Diagram
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
