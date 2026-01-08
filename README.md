@@ -68,7 +68,9 @@ The server exposes MCP tools that Claude can invoke to manage WiFi connections. 
 └───────────────────┘
 ```
 
-### Tool Coverage Matrix
+---
+
+## Features
 
 ```
 ┌────────────────────┬───────────┬───────────┬───────────────┐
@@ -89,6 +91,62 @@ The server exposes MCP tools that Claude can invoke to manage WiFi connections. 
 
 ---
 
+## Example Usage
+
+### Basic WiFi Connection
+
+```
+User: "Scan for WiFi networks"
+Claude: [calls wifi_scan]
+→ Lists available networks with signal strength and security type
+
+User: "Connect to 'CoffeeShop' with password 'guest123'"
+Claude: [calls wifi_connect with ssid="CoffeeShop", password="guest123"]
+→ Connects to the network
+```
+
+### WPA2-Enterprise Connection
+
+```
+User: "Connect to corporate WiFi 'CorpNet' with my credentials"
+Claude: [calls wifi_connect_eap with ssid="CorpNet", identity="user@corp.com", password="secret"]
+→ Connects using PEAP/MSCHAPv2
+
+User: "Connection failed, why?"
+Claude: [calls wifi_get_debug_logs with filter="eap"]
+→ Shows EAP authentication logs revealing identity rejection or credential failure
+```
+
+### Debugging Connection Issues
+
+```
+User: "WiFi keeps disconnecting"
+Claude: [calls wifi_get_debug_logs with filter="state"]
+→ Shows state transitions: COMPLETED -> DISCONNECTED -> SCANNING
+
+User: "Check EAP diagnostics"
+Claude: [calls wifi_eap_diagnostics]
+→ Returns: eap_state=IDLE, decision=FAIL (server rejected credentials)
+```
+
+### Captive Portal Handling
+
+```
+User: "Check if there's internet"
+Claude: [calls network_check_internet]
+→ Reports online status and latency
+
+User: "Check for captive portal"
+Claude: [calls network_check_captive]
+→ Detects if behind a login page
+
+User: "Run the hotel-login script with room 101"
+Claude: [calls browser_run_script with script_name="hotel-login", variables={room: "101"}]
+→ Executes Playwright script to handle login
+```
+
+---
+
 ## Quick Start
 
 ```bash
@@ -96,7 +154,7 @@ The server exposes MCP tools that Claude can invoke to manage WiFi connections. 
 npm install
 npm run build
 
-# 2. Set up wpa_supplicant (see "wpa_supplicant Setup" below)
+# 2. Set up wpa_supplicant (see "Prerequisites" below)
 
 # 3. Start the server (replace wlan0 with your interface)
 WIFI_INTERFACE=wlan0 npm start
@@ -105,43 +163,22 @@ WIFI_INTERFACE=wlan0 npm start
 claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
 ```
 
-## Configuration
-
-Copy `.env.example` to `.env` and configure:
-
-```bash
-PORT=3000
-HOST=0.0.0.0
-WIFI_INTERFACE=wlan0
-```
-
-## Makefile Commands
-
-| Command | Description |
-|---------|-------------|
-| `make start` | Start server in background |
-| `make stop` | Stop server |
-| `make restart` | Restart server |
-| `make logs` | Tail log file |
-| `make status` | Check if server is running |
-| `make clean` | Remove dist/ |
-
-For build/install, use npm directly: `npm install`, `npm run build`, `npm run start`.
-
 ---
 
-## wpa_supplicant Setup
+## Prerequisites
+
+### wpa_supplicant Setup
 
 Before the server can control WiFi, wpa_supplicant must be configured properly.
 
-### 1. Find your WiFi interface
+#### 1. Find your WiFi interface
 
 ```bash
 ip link show | grep -E "^[0-9]+: wl"
 # Example output: 4: wlan0: <BROADCAST,MULTICAST> ...
 ```
 
-### 2. Disable NetworkManager for WiFi interface (if running)
+#### 2. Disable NetworkManager for WiFi interface (if running)
 
 ```bash
 # Check if NetworkManager is managing your interface
@@ -156,7 +193,7 @@ sudo nmcli device set wlan0 managed no
 # unmanaged-devices=interface-name:wlan0
 ```
 
-### 3. Create wpa_supplicant config
+#### 3. Create wpa_supplicant config
 
 ```bash
 sudo mkdir -p /etc/wpa_supplicant
@@ -168,14 +205,14 @@ EOF
 sudo chmod 600 /etc/wpa_supplicant/wpa_supplicant.conf
 ```
 
-### 4. Start wpa_supplicant
+#### 4. Start wpa_supplicant
 
 ```bash
 # Replace wlan0 with your interface name
 sudo wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
 ```
 
-### 5. Verify wpa_cli works
+#### 5. Verify wpa_cli works
 
 ```bash
 wpa_cli -i wlan0 status
@@ -229,7 +266,19 @@ npx playwright install chromium
 
 ---
 
-## Claude Code Configuration
+## Configuration
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+```bash
+PORT=3000
+HOST=0.0.0.0
+WIFI_INTERFACE=wlan0
+```
+
+### Claude Code
 
 Register the MCP server with Claude Code:
 
@@ -239,7 +288,7 @@ claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
 
 Then start a new Claude Code session to use the WiFi tools.
 
-## Claude Desktop Configuration
+### Claude Desktop
 
 Add to your `claude_desktop_config.json`:
 
@@ -252,6 +301,19 @@ Add to your `claude_desktop_config.json`:
   }
 }
 ```
+
+### Makefile Commands
+
+| Command | Description |
+|---------|-------------|
+| `make start` | Start server in background |
+| `make stop` | Stop server |
+| `make restart` | Restart server |
+| `make logs` | Tail log file |
+| `make status` | Check if server is running |
+| `make clean` | Remove dist/ |
+
+For build/install, use npm directly: `npm install`, `npm run build`, `npm run start`.
 
 ---
 
@@ -325,62 +387,6 @@ browser_run_script("my-portal", { username: "guest", password: "wifi123" })
 
 ---
 
-## Example Usage
-
-### Basic WiFi Connection
-
-```
-User: "Scan for WiFi networks"
-Claude: [calls wifi_scan]
-→ Lists available networks with signal strength and security type
-
-User: "Connect to 'CoffeeShop' with password 'guest123'"
-Claude: [calls wifi_connect with ssid="CoffeeShop", password="guest123"]
-→ Connects to the network
-```
-
-### WPA2-Enterprise Connection
-
-```
-User: "Connect to corporate WiFi 'CorpNet' with my credentials"
-Claude: [calls wifi_connect_eap with ssid="CorpNet", identity="user@corp.com", password="secret"]
-→ Connects using PEAP/MSCHAPv2
-
-User: "Connection failed, why?"
-Claude: [calls wifi_get_debug_logs with filter="eap"]
-→ Shows EAP authentication logs revealing identity rejection or credential failure
-```
-
-### Debugging Connection Issues
-
-```
-User: "WiFi keeps disconnecting"
-Claude: [calls wifi_get_debug_logs with filter="state"]
-→ Shows state transitions: COMPLETED -> DISCONNECTED -> SCANNING
-
-User: "Check EAP diagnostics"
-Claude: [calls wifi_eap_diagnostics]
-→ Returns: eap_state=IDLE, decision=FAIL (server rejected credentials)
-```
-
-### Captive Portal Handling
-
-```
-User: "Check if there's internet"
-Claude: [calls network_check_internet]
-→ Reports online status and latency
-
-User: "Check for captive portal"
-Claude: [calls network_check_captive]
-→ Detects if behind a login page
-
-User: "Run the hotel-login script with room 101"
-Claude: [calls browser_run_script with script_name="hotel-login", variables={room: "101"}]
-→ Executes Playwright script to handle login
-```
-
----
-
 ## Debug Log Filters
 
 The `wifi_get_debug_logs` tool supports these filters to help diagnose specific issues:
@@ -401,6 +407,8 @@ By default, logs are filtered to show only entries since the last WiFi command, 
 
 - `POST /mcp` - MCP protocol endpoint (Streamable HTTP)
 - `GET /health` - Health check
+
+---
 
 ## License
 
