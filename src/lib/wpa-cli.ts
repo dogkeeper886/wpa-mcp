@@ -384,7 +384,7 @@ export class WpaCli {
     identity: string,
     clientCertPath: string,
     privateKeyPath: string,
-    caCertPath: string,
+    caCertPath?: string,
     privateKeyPassword?: string,
     macConfig?: MacAddressConfig,
   ): Promise<void> {
@@ -442,12 +442,14 @@ export class WpaCli {
         throw new Error(`Failed to set private_key: ${privateKeyResult}`);
       }
 
-      // Set CA certificate
-      const caCertResult = await this.run(
-        `set_network ${networkId} ca_cert '"${caCertPath}"'`,
-      );
-      if (!caCertResult.includes("OK")) {
-        throw new Error(`Failed to set ca_cert: ${caCertResult}`);
+      // Set CA certificate (optional - if not provided, server cert is not validated)
+      if (caCertPath) {
+        const caCertResult = await this.run(
+          `set_network ${networkId} ca_cert '"${caCertPath}"'`,
+        );
+        if (!caCertResult.includes("OK")) {
+          throw new Error(`Failed to set ca_cert: ${caCertResult}`);
+        }
       }
 
       // Set private key password if provided

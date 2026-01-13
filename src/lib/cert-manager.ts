@@ -7,14 +7,14 @@ const TEMP_DIR = '/tmp/wpa-mcp-certs';
 export interface CertFiles {
   clientCert: string;
   privateKey: string;
-  caCert: string;
+  caCert?: string;
   cleanup: () => Promise<void>;
 }
 
 export async function writeTempCerts(
   clientCertPem: string,
   privateKeyPem: string,
-  caCertPem: string
+  caCertPem?: string
 ): Promise<CertFiles> {
   const id = randomBytes(8).toString('hex');
 
@@ -22,16 +22,20 @@ export async function writeTempCerts(
 
   const clientCert = join(TEMP_DIR, `client-${id}.crt`);
   const privateKey = join(TEMP_DIR, `client-${id}.key`);
-  const caCert = join(TEMP_DIR, `ca-${id}.crt`);
+  const caCert = caCertPem ? join(TEMP_DIR, `ca-${id}.crt`) : undefined;
 
   await writeFile(clientCert, clientCertPem, { mode: 0o600 });
   await writeFile(privateKey, privateKeyPem, { mode: 0o600 });
-  await writeFile(caCert, caCertPem, { mode: 0o600 });
+  if (caCertPem && caCert) {
+    await writeFile(caCert, caCertPem, { mode: 0o600 });
+  }
 
   const cleanup = async () => {
     await unlink(clientCert).catch(() => {});
     await unlink(privateKey).catch(() => {});
-    await unlink(caCert).catch(() => {});
+    if (caCert) {
+      await unlink(caCert).catch(() => {});
+    }
   };
 
   return { clientCert, privateKey, caCert, cleanup };

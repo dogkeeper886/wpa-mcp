@@ -639,7 +639,8 @@ export function registerWifiTools(
       private_key_pem: z.string().describe("PEM-encoded private key"),
       ca_cert_pem: z
         .string()
-        .describe("PEM-encoded CA certificate for server validation"),
+        .optional()
+        .describe("PEM-encoded CA certificate for server validation. If omitted, server certificate is not verified (insecure, for testing only)."),
       private_key_password: z
         .string()
         .optional()
