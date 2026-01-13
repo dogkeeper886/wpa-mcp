@@ -98,17 +98,12 @@ The server can run wpa_supplicant as a managed subprocess (WpaDaemon) or use an 
 
 ### Core Principles
 
-#### Simplicity First
-- Choose the simplest solution that works
-- Avoid abstractions until you have 3+ concrete use cases
-- Delete code rather than comment it out
-- One responsibility per function/class
-
-#### Fail Fast, Fail Loud
-- No defensive programming or extensive validation
-- Let the code fail immediately when inputs are invalid
-- Use language built-ins for type checking
-- Crash early rather than propagate bad state
+#### Readability First
+- Code is read more than written - optimize for the reader
+- Separate concerns into focused modules (e.g., file I/O vs business logic)
+- Use clear, descriptive names that explain intent
+- Add comments for "why", not "what"
+- Keep functions short enough to understand at a glance
 
 #### Consistency Over Cleverness
 - Same patterns for same problems
@@ -116,17 +111,24 @@ The server can run wpa_supplicant as a managed subprocess (WpaDaemon) or use an 
 - Consistent naming conventions throughout the codebase
 - Follow existing code style in the file you're editing
 
-#### No Complex Debug/Logging
-- Avoid complicated logging infrastructure
-- No elaborate debug systems or verbose error messages
-- Simple console output when absolutely necessary
-- Trust stack traces for debugging
+#### Fail Fast with Context
+- Let code fail immediately when inputs are invalid
+- Include enough context in errors for debugging (what failed, what was expected)
+- Use structured error types when helpful for handling
+- Propagate errors up with added context, don't swallow them
 
-#### No Health Checks or Redundant Validation
-- Don't validate inputs that the language/framework already validates
-- No "health check" endpoints or status monitoring code
-- Trust your dependencies to work or fail appropriately
-- Remove code that checks for "impossible" conditions
+#### Observability by Design
+- Log at appropriate levels: error, warn, info, debug
+- Include correlation IDs for request tracing
+- Log at boundaries: incoming requests, outgoing calls, state changes
+- Structure logs as JSON for parsing (timestamp, level, message, context)
+- Never log sensitive data (passwords, keys, tokens, PII)
+
+#### Metrics for Operations
+- Track request counts, latencies, error rates
+- Instrument critical paths (connection attempts, auth flows)
+- Use histograms for latency, counters for events
+- Include labels for dimensionality (method, status, error_type)
 
 ### New Feature Guidelines
 
@@ -139,68 +141,77 @@ The server can run wpa_supplicant as a managed subprocess (WpaDaemon) or use an 
 ### What to Look For
 
 #### ✅ Approve
-- Direct, obvious implementations
+- Clear separation of concerns
 - Code that follows existing patterns in the codebase
-- Minimal abstractions
+- Appropriate logging at boundaries and errors
 - Clear, descriptive variable/function names
-- Removal of unnecessary code
+- Proper error handling with context
 
 #### ❌ Request Changes
-- Over-abstraction (interfaces with single implementations)
-- Defensive validation of already-validated inputs
-- Health checks, status endpoints, or monitoring code
-- Complex logging or debugging infrastructure
+- Mixed concerns in a single function/module
+- Missing error context (bare throws, swallowed errors)
+- Missing logs at critical operations
+- Logging sensitive information
 - Different patterns for the same type of problem
-- Code that tries to "be safe" instead of being correct
 - Files containing private information (passwords, API keys, tokens, credentials, internal URLs)
 
 ### Review Checklist
 
-1. **Is this the simplest approach?** Can it be done with fewer lines/files/abstractions?
+1. **Is it readable?** Can a new developer understand this in 5 minutes?
 2. **Does it follow existing patterns?** Look for similar code elsewhere in the codebase
-3. **Does it fail fast?** No graceful degradation or fallback logic
-4. **Is validation necessary?** Remove checks that duplicate language/framework validation
-5. **Can any code be deleted?** Less code is better code
-6. **Is logging/debugging simple?** No complex debug infrastructure
-7. **No private information?** Check for passwords, API keys, tokens, internal URLs, or credentials
+3. **Are errors informative?** Do they include context for debugging?
+4. **Is logging appropriate?** Boundaries logged, sensitive data excluded?
+5. **Are concerns separated?** Each module/function does one thing?
+6. **No private information?** Check for passwords, API keys, tokens, internal URLs, or credentials
 
-### Examples
+### Logging Guidelines
 
-#### Good
 ```javascript
-function createUser(email, password) {
-  return db.users.create({ email, password });
-}
+// Good - structured, contextual, appropriate level
+logger.info('wifi connection started', { ssid, interface: iface, requestId });
+logger.error('connection failed', { ssid, error: err.message, elapsed_ms, requestId });
+
+// Bad - unstructured, missing context
+console.log('connecting...');
+console.log('error: ' + err);
+
+// Good - debug for detailed tracing
+logger.debug('wpa_cli command', { command: 'add_network', result: networkId });
+
+// Bad - logging sensitive data
+logger.info('connecting with password', { ssid, password }); // NEVER DO THIS
 ```
 
-#### Bad
+### Error Handling
+
 ```javascript
-function createUser(email, password) {
-  logger.debug('Creating user', { email });
-  
-  if (!email || typeof email !== 'string') {
-    logger.error('Invalid email provided');
-    throw new Error('Invalid email');
-  }
-  if (!password || password.length < 8) {
-    logger.warn('Password validation failed');
-    throw new Error('Password too short');
-  }
+// Good - context preserved, actionable
+async function connectTls(ssid, identity, certs) {
+  const networkId = await wpa.addNetwork();
   
   try {
-    const user = db.users.create({ email, password });
-    logger.info('User created successfully', { userId: user.id });
-    return { success: true, user };
-  } catch (error) {
-    logger.error('User creation failed', error);
-    return { success: false, error: error.message };
+    await wpa.setNetwork(networkId, 'ssid', ssid);
+    await wpa.setNetwork(networkId, 'eap', 'TLS');
+    // ...
+  } catch (err) {
+    await wpa.removeNetwork(networkId).catch(() => {});
+    throw new Error(`EAP-TLS connection to ${ssid} failed: ${err.message}`);
+  }
+}
+
+// Bad - swallowed error, no context
+async function connectTls(ssid, identity, certs) {
+  try {
+    // ...
+  } catch (err) {
+    return { success: false }; // What failed? Why?
   }
 }
 ```
 
 ### Remember
-- Code should be boring and predictable
-- When in doubt, delete it
-- Trust your tools and dependencies
+- Readability and maintainability are non-negotiable
+- Good logs save hours of debugging
+- Errors should tell you what went wrong and where
+- Separate concerns, even if it means more files
 - Consistency beats perfection
-- Simple failures are better than complex success handling
