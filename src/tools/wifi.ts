@@ -4,6 +4,7 @@ import { WpaCli } from "../lib/wpa-cli.js";
 import { WpaDaemon, LogFilter } from "../lib/wpa-daemon.js";
 import { DhcpManager } from "../lib/dhcp-manager.js";
 import { writeTempCerts } from "../lib/cert-manager.js";
+import { credentialStore } from "../lib/credential-store.js";
 import type {
   MacAddressConfig,
   MacAddressMode,
@@ -632,15 +633,37 @@ export function registerWifiTools(
       "no password transmitted. Requires client certificate, private key, and CA certificate.",
     {
       ssid: z.string().describe("Network SSID to connect to"),
+      credential_id: z
+        .string()
+        .optional()
+        .describe(
+          "Reference to stored credential (from credential_store). " +
+            "If provided, uses stored certs instead of PEM parameters.",
+        ),
       identity: z
         .string()
-        .describe("Identity (typically CN from client certificate)"),
-      client_cert_pem: z.string().describe("PEM-encoded client certificate"),
-      private_key_pem: z.string().describe("PEM-encoded private key"),
+        .optional()
+        .describe(
+          "Identity (typically CN from client certificate). Required if credential_id not provided.",
+        ),
+      client_cert_pem: z
+        .string()
+        .optional()
+        .describe(
+          "PEM-encoded client certificate. Required if credential_id not provided.",
+        ),
+      private_key_pem: z
+        .string()
+        .optional()
+        .describe(
+          "PEM-encoded private key. Required if credential_id not provided.",
+        ),
       ca_cert_pem: z
         .string()
         .optional()
-        .describe("PEM-encoded CA certificate for server validation. If omitted, server certificate is not verified (insecure, for testing only)."),
+        .describe(
+          "PEM-encoded CA certificate for server validation. If omitted, server certificate is not verified (insecure, for testing only).",
+        ),
       private_key_password: z
         .string()
         .optional()
@@ -680,6 +703,7 @@ export function registerWifiTools(
     },
     async ({
       ssid,
+      credential_id,
       identity,
       client_cert_pem,
       private_key_pem,
@@ -691,13 +715,105 @@ export function registerWifiTools(
       preassoc_mac_mode,
       rand_addr_lifetime,
     }) => {
-      const certFiles = await writeTempCerts(
-        client_cert_pem,
-        private_key_pem,
-        ca_cert_pem,
-      );
+      // Resolve certificate paths and identity
+      let clientCertPath: string;
+      let privateKeyPath: string;
+      let caCertPath: string | undefined;
+      let resolvedIdentity: string;
+      let resolvedKeyPassword: string | undefined = private_key_password;
+      let cleanupFn: (() => Promise<void>) | undefined;
 
       try {
+        if (credential_id) {
+          // Use stored credential
+          const credential = await credentialStore.get(credential_id);
+          if (!credential) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    success: false,
+                    error: `Credential '${credential_id}' not found. Use credential_list to see available credentials.`,
+                  }),
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          clientCertPath = credential.paths.clientCert;
+          privateKeyPath = credential.paths.privateKey;
+          caCertPath = credential.paths.caCert;
+          resolvedIdentity = credential.metadata.identity;
+
+          // Get stored key password if not provided
+          if (!resolvedKeyPassword && credential.metadata.has_key_password) {
+            resolvedKeyPassword =
+              await credentialStore.getKeyPassword(credential_id);
+          }
+        } else {
+          // Use PEM parameters - validate required fields
+          if (!identity) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    success: false,
+                    error:
+                      "identity is required when credential_id is not provided",
+                  }),
+                },
+              ],
+              isError: true,
+            };
+          }
+          if (!client_cert_pem) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    success: false,
+                    error:
+                      "client_cert_pem is required when credential_id is not provided",
+                  }),
+                },
+              ],
+              isError: true,
+            };
+          }
+          if (!private_key_pem) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    success: false,
+                    error:
+                      "private_key_pem is required when credential_id is not provided",
+                  }),
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          // Write temp files
+          const certFiles = await writeTempCerts(
+            client_cert_pem,
+            private_key_pem,
+            ca_cert_pem,
+          );
+
+          clientCertPath = certFiles.clientCert;
+          privateKeyPath = certFiles.privateKey;
+          caCertPath = certFiles.caCert;
+          resolvedIdentity = identity;
+          cleanupFn = certFiles.cleanup;
+        }
+
         daemon?.markCommandStart();
         const targetIface = iface || DEFAULT_INTERFACE;
         const wpa = new WpaCli(targetIface);
@@ -715,11 +831,11 @@ export function registerWifiTools(
 
         await wpa.connectTls(
           ssid,
-          identity,
-          certFiles.clientCert,
-          certFiles.privateKey,
-          certFiles.caCert,
-          private_key_password,
+          resolvedIdentity,
+          clientCertPath,
+          privateKeyPath,
+          caCertPath,
+          resolvedKeyPassword,
           macConfig,
         );
 
@@ -739,6 +855,7 @@ export function registerWifiTools(
                   {
                     success: true,
                     message: `Connected to ${ssid} using EAP-TLS`,
+                    credential_id: credential_id || undefined,
                     status: { ...status, ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
@@ -760,6 +877,7 @@ export function registerWifiTools(
                   message: reached
                     ? `Connected to ${ssid} using EAP-TLS`
                     : `Connecting to ${ssid} (connection timeout)`,
+                  credential_id: credential_id || undefined,
                   status: status,
                 },
                 null,
@@ -782,8 +900,10 @@ export function registerWifiTools(
           isError: true,
         };
       } finally {
-        // Always clean up temp certificate files
-        await certFiles.cleanup();
+        // Clean up temp certificate files if we created them
+        if (cleanupFn) {
+          await cleanupFn();
+        }
       }
     },
   );

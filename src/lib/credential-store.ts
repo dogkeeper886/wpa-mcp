@@ -1,0 +1,350 @@
+import { readFile, writeFile, readdir, mkdir, rm, access, constants } from 'fs/promises';
+import { join } from 'path';
+import { homedir } from 'os';
+import { spawn } from 'child_process';
+
+const CREDENTIALS_DIR = join(homedir(), '.config', 'wpa-mcp', 'credentials');
+
+export interface CredentialMetadata {
+  id: string;
+  identity: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+  has_ca_cert: boolean;
+  has_key_password: boolean;
+}
+
+export interface CredentialPaths {
+  clientCert: string;
+  privateKey: string;
+  caCert?: string;
+}
+
+export interface StoredCredential {
+  metadata: CredentialMetadata;
+  paths: CredentialPaths;
+}
+
+export interface CertInfo {
+  subject?: string;
+  issuer?: string;
+  not_before?: string;
+  not_after?: string;
+}
+
+/**
+ * Validates credential ID format.
+ * Allowed: alphanumeric, dash, underscore. Length 1-64.
+ */
+function validateId(id: string): void {
+  if (!id || typeof id !== 'string') {
+    throw new Error('Credential ID is required');
+  }
+  if (id.length > 64) {
+    throw new Error('Credential ID must be 64 characters or less');
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    throw new Error('Invalid credential ID: must contain only alphanumeric, dash, or underscore');
+  }
+}
+
+/**
+ * Validates PEM format.
+ */
+function validatePem(pem: string, type: string): void {
+  if (!pem || typeof pem !== 'string') {
+    throw new Error(`${type} is required`);
+  }
+  const trimmed = pem.trim();
+  if (!trimmed.includes('-----BEGIN') || !trimmed.includes('-----END')) {
+    throw new Error(`Invalid PEM format for ${type}`);
+  }
+}
+
+/**
+ * Parse certificate info using openssl.
+ */
+async function parseCertInfo(certPath: string): Promise<CertInfo> {
+  return new Promise((resolve) => {
+    const proc = spawn('openssl', ['x509', '-in', certPath, '-noout', '-subject', '-issuer', '-dates']);
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => { stdout += data; });
+    proc.stderr.on('data', (data) => { stderr += data; });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        resolve({});
+        return;
+      }
+
+      const info: CertInfo = {};
+      const lines = stdout.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('subject=')) {
+          info.subject = line.substring(8).trim();
+        } else if (line.startsWith('issuer=')) {
+          info.issuer = line.substring(7).trim();
+        } else if (line.startsWith('notBefore=')) {
+          info.not_before = line.substring(10).trim();
+        } else if (line.startsWith('notAfter=')) {
+          info.not_after = line.substring(9).trim();
+        }
+      }
+      resolve(info);
+    });
+
+    proc.on('error', () => {
+      resolve({});
+    });
+  });
+}
+
+export class CredentialStore {
+  private baseDir: string;
+
+  constructor(baseDir?: string) {
+    this.baseDir = baseDir || CREDENTIALS_DIR;
+  }
+
+  /**
+   * Get the directory path for a credential.
+   */
+  private credentialDir(id: string): string {
+    return join(this.baseDir, id);
+  }
+
+  /**
+   * Ensure base directory exists.
+   */
+  private async ensureBaseDir(): Promise<void> {
+    await mkdir(this.baseDir, { recursive: true, mode: 0o700 });
+  }
+
+  /**
+   * Check if a credential exists.
+   */
+  async exists(id: string): Promise<boolean> {
+    validateId(id);
+    try {
+      await access(join(this.credentialDir(id), 'meta.json'), constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Store a credential (create or update).
+   */
+  async store(
+    id: string,
+    identity: string,
+    clientCertPem: string,
+    privateKeyPem: string,
+    caCertPem?: string,
+    privateKeyPassword?: string,
+    description?: string
+  ): Promise<{ created: boolean; path: string }> {
+    validateId(id);
+    validatePem(clientCertPem, 'client_cert_pem');
+    validatePem(privateKeyPem, 'private_key_pem');
+    if (caCertPem) {
+      validatePem(caCertPem, 'ca_cert_pem');
+    }
+
+    if (!identity || typeof identity !== 'string') {
+      throw new Error('Identity is required');
+    }
+
+    await this.ensureBaseDir();
+
+    const credDir = this.credentialDir(id);
+    const existed = await this.exists(id);
+
+    // Create credential directory
+    await mkdir(credDir, { recursive: true, mode: 0o700 });
+
+    // Write certificate files
+    const clientCertPath = join(credDir, 'client.crt');
+    const privateKeyPath = join(credDir, 'client.key');
+    const caCertPath = join(credDir, 'ca.crt');
+
+    await writeFile(clientCertPath, clientCertPem.trim() + '\n', { mode: 0o600 });
+    await writeFile(privateKeyPath, privateKeyPem.trim() + '\n', { mode: 0o600 });
+
+    if (caCertPem) {
+      await writeFile(caCertPath, caCertPem.trim() + '\n', { mode: 0o600 });
+    }
+
+    // Write metadata
+    const now = new Date().toISOString();
+    const metadata: CredentialMetadata = {
+      id,
+      identity,
+      description,
+      created_at: existed ? (await this.getMetadata(id))?.created_at || now : now,
+      updated_at: now,
+      has_ca_cert: !!caCertPem,
+      has_key_password: !!privateKeyPassword,
+    };
+
+    // Store password hint if provided (not the actual password for security)
+    const metaPath = join(credDir, 'meta.json');
+    await writeFile(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
+
+    // If password provided, store it securely
+    if (privateKeyPassword) {
+      const passwordPath = join(credDir, '.key_password');
+      await writeFile(passwordPath, privateKeyPassword, { mode: 0o600 });
+    }
+
+    return { created: !existed, path: credDir };
+  }
+
+  /**
+   * Get credential metadata only.
+   */
+  private async getMetadata(id: string): Promise<CredentialMetadata | null> {
+    try {
+      const metaPath = join(this.credentialDir(id), 'meta.json');
+      const content = await readFile(metaPath, 'utf-8');
+      return JSON.parse(content);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get a stored credential.
+   */
+  async get(id: string): Promise<StoredCredential | null> {
+    validateId(id);
+
+    const credDir = this.credentialDir(id);
+    const metaPath = join(credDir, 'meta.json');
+
+    try {
+      const metaContent = await readFile(metaPath, 'utf-8');
+      const metadata: CredentialMetadata = JSON.parse(metaContent);
+
+      const clientCertPath = join(credDir, 'client.crt');
+      const privateKeyPath = join(credDir, 'client.key');
+      const caCertPath = join(credDir, 'ca.crt');
+
+      const paths: CredentialPaths = {
+        clientCert: clientCertPath,
+        privateKey: privateKeyPath,
+      };
+
+      if (metadata.has_ca_cert) {
+        paths.caCert = caCertPath;
+      }
+
+      return { metadata, paths };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get the private key password if stored.
+   */
+  async getKeyPassword(id: string): Promise<string | undefined> {
+    validateId(id);
+    try {
+      const passwordPath = join(this.credentialDir(id), '.key_password');
+      return await readFile(passwordPath, 'utf-8');
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Get certificate info for a credential.
+   */
+  async getCertInfo(id: string): Promise<CertInfo> {
+    validateId(id);
+    const credDir = this.credentialDir(id);
+    const clientCertPath = join(credDir, 'client.crt');
+    return parseCertInfo(clientCertPath);
+  }
+
+  /**
+   * Read PEM content for a credential.
+   */
+  async getPemContent(id: string): Promise<{
+    client_cert_pem: string;
+    private_key_pem: string;
+    ca_cert_pem?: string;
+  } | null> {
+    validateId(id);
+
+    const cred = await this.get(id);
+    if (!cred) {
+      return null;
+    }
+
+    try {
+      const clientCertPem = await readFile(cred.paths.clientCert, 'utf-8');
+      const privateKeyPem = await readFile(cred.paths.privateKey, 'utf-8');
+      let caCertPem: string | undefined;
+
+      if (cred.paths.caCert) {
+        caCertPem = await readFile(cred.paths.caCert, 'utf-8');
+      }
+
+      return { client_cert_pem: clientCertPem, private_key_pem: privateKeyPem, ca_cert_pem: caCertPem };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * List all stored credentials.
+   */
+  async list(): Promise<CredentialMetadata[]> {
+    try {
+      await this.ensureBaseDir();
+      const entries = await readdir(this.baseDir, { withFileTypes: true });
+      const credentials: CredentialMetadata[] = [];
+
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const metadata = await this.getMetadata(entry.name);
+          if (metadata) {
+            credentials.push(metadata);
+          }
+        }
+      }
+
+      // Sort by updated_at descending
+      credentials.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+
+      return credentials;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Delete a credential.
+   */
+  async delete(id: string): Promise<boolean> {
+    validateId(id);
+
+    const credDir = this.credentialDir(id);
+
+    try {
+      await rm(credDir, { recursive: true, force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+// Default singleton instance
+export const credentialStore = new CredentialStore();
