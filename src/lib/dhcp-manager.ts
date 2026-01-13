@@ -1,5 +1,6 @@
 import { spawn, ChildProcess, exec } from 'child_process';
 import { promisify } from 'util';
+import { MacAddressMode } from '../types.js';
 
 const execAsync = promisify(exec);
 
@@ -7,17 +8,30 @@ export class DhcpManager {
   private process: ChildProcess | null = null;
   private iface: string | null = null;
 
-  async start(iface: string): Promise<void> {
+  async start(iface: string, macMode?: MacAddressMode): Promise<void> {
     // Kill any existing dhclient first
     await this.stop();
 
     this.iface = iface;
     console.log(`Starting dhclient for ${iface}...`);
 
-    // Run dhclient in foreground mode for process management
+    // Build dhclient arguments
     // -d = don't daemonize (foreground)
     // -v = verbose
-    this.process = spawn('sudo', ['dhclient', '-d', '-v', iface], {
+    const args = ['dhclient', '-d', '-v'];
+
+    // Use no lease file for random MAC modes (fresh DHCP discovery)
+    // This prevents dhclient from requesting the same IP it had before
+    // when the MAC address has changed
+    if (macMode === 'random' || macMode === 'persistent-random') {
+      args.push('-lf', '/dev/null');
+      console.log(`Using fresh DHCP discovery (MAC mode: ${macMode})`);
+    }
+
+    args.push(iface);
+
+    // Run dhclient in foreground mode for process management
+    this.process = spawn('sudo', args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

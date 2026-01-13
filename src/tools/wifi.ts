@@ -129,7 +129,7 @@ export function registerWifiTools(
 
         if (reached && dhcpManager) {
           // Connection successful, get IP address via DHCP
-          await dhcpManager.start(targetIface);
+          await dhcpManager.start(targetIface, macConfig?.mode);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
           return {
@@ -266,7 +266,7 @@ export function registerWifiTools(
 
         if (reached && dhcpManager) {
           // Connection successful, get IP address via DHCP
-          await dhcpManager.start(targetIface);
+          await dhcpManager.start(targetIface, macConfig?.mode);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
           return {
