@@ -1,21 +1,32 @@
 # wpa-mcp Makefile
 # Local process management for wpa-mcp server
 
-.PHONY: start stop restart logs status clean help
+.PHONY: start stop restart logs status clean help upload-certs
+
+# Load .env if exists
+-include .env
+
+# Default values (can be overridden in .env or command line)
+CERT_REMOTE_DIR ?= /tmp/certs
 
 help:
 	@echo "wpa-mcp Makefile targets:"
-	@echo "  start     - Start server in background"
-	@echo "  stop      - Stop server"
-	@echo "  restart   - Restart server"
-	@echo "  logs      - Tail log file"
-	@echo "  status    - Check if server is running"
-	@echo "  clean     - Remove dist/"
+	@echo "  start        - Start server in background"
+	@echo "  stop         - Stop server"
+	@echo "  restart      - Restart server"
+	@echo "  logs         - Tail log file"
+	@echo "  status       - Check if server is running"
+	@echo "  clean        - Remove dist/"
+	@echo "  upload-certs - Upload EAP-TLS certificates to remote host"
 	@echo ""
 	@echo "For build/install, use npm directly:"
 	@echo "  npm install      - Install dependencies"
 	@echo "  npm run build    - Compile TypeScript"
 	@echo "  npm run start    - Run in foreground"
+	@echo ""
+	@echo "Certificate upload (configure in .env or pass as args):"
+	@echo "  make upload-certs CERT_REMOTE_HOST=user@host \\"
+	@echo "       CERT_CLIENT=./client.crt CERT_KEY=./client.key CERT_CA=./ca.crt"
 
 start:
 	@echo "Starting server..."
@@ -43,3 +54,44 @@ status:
 clean:
 	@rm -rf dist/
 	@echo "Cleaned dist/"
+
+# Upload EAP-TLS certificates to remote host
+# Usage: make upload-certs CERT_REMOTE_HOST=user@host CERT_CLIENT=./client.crt CERT_KEY=./client.key
+# Optional: CERT_CA=./ca.crt CERT_REMOTE_DIR=/tmp/certs
+upload-certs:
+	@if [ -z "$(CERT_REMOTE_HOST)" ]; then \
+		echo "Error: CERT_REMOTE_HOST not set"; \
+		echo "Usage: make upload-certs CERT_REMOTE_HOST=user@host CERT_CLIENT=./client.crt CERT_KEY=./client.key"; \
+		exit 1; \
+	fi
+	@if [ -z "$(CERT_CLIENT)" ] || [ -z "$(CERT_KEY)" ]; then \
+		echo "Error: CERT_CLIENT and CERT_KEY are required"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(CERT_CLIENT)" ]; then \
+		echo "Error: Client certificate not found: $(CERT_CLIENT)"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(CERT_KEY)" ]; then \
+		echo "Error: Private key not found: $(CERT_KEY)"; \
+		exit 1; \
+	fi
+	@echo "Creating remote directory $(CERT_REMOTE_DIR)..."
+	@ssh $(CERT_REMOTE_HOST) "mkdir -p $(CERT_REMOTE_DIR) && chmod 700 $(CERT_REMOTE_DIR)"
+	@echo "Uploading certificates to $(CERT_REMOTE_HOST):$(CERT_REMOTE_DIR)/"
+	@scp $(CERT_CLIENT) $(CERT_REMOTE_HOST):$(CERT_REMOTE_DIR)/client.crt
+	@scp $(CERT_KEY) $(CERT_REMOTE_HOST):$(CERT_REMOTE_DIR)/client.key
+	@if [ -n "$(CERT_CA)" ] && [ -f "$(CERT_CA)" ]; then \
+		scp $(CERT_CA) $(CERT_REMOTE_HOST):$(CERT_REMOTE_DIR)/ca.crt; \
+		echo "Uploaded: client.crt, client.key, ca.crt"; \
+	else \
+		echo "Uploaded: client.crt, client.key (no CA cert)"; \
+	fi
+	@ssh $(CERT_REMOTE_HOST) "chmod 600 $(CERT_REMOTE_DIR)/*.crt $(CERT_REMOTE_DIR)/*.key 2>/dev/null || true"
+	@echo ""
+	@echo "Certificates uploaded. Use credential_store with paths:"
+	@echo "  client_cert_path: $(CERT_REMOTE_DIR)/client.crt"
+	@echo "  private_key_path: $(CERT_REMOTE_DIR)/client.key"
+	@if [ -n "$(CERT_CA)" ] && [ -f "$(CERT_CA)" ]; then \
+		echo "  ca_cert_path: $(CERT_REMOTE_DIR)/ca.crt"; \
+	fi
