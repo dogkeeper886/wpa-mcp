@@ -1,71 +1,93 @@
 # Credential Store for EAP-TLS
 
-**Status:** Proposed  
-**Created:** 2026-01-13  
+**Status:** In Progress
+**Created:** 2026-01-13
+**Updated:** 2026-01-13
 **Related:** [802.1x-credential-auth.md](./802.1x-credential-auth.md)
 
 ---
 
 ## Goal
 
-Add CRUD tools for managing EAP-TLS certificates/credentials on the MCP server. This eliminates the need for AI agents to pass large PEM content in every connection request, reducing token usage and function call generation time.
+Add CRUD tools for managing EAP-TLS certificates/credentials on the MCP server. This eliminates the need for AI agents to pass large PEM content in every connection request, reducing token usage and preventing data corruption.
 
 ---
 
 ## Problem Statement
 
-Current `wifi_connect_tls` requires passing full PEM content for each connection:
+### Original Problem: Passing PEM in Tool Calls
+
+The original design required AI to pass PEM content directly in tool calls:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Current Flow (Slow)                                            │
+│  Original Flow (Problematic)                                    │
 │                                                                 │
-│  AI Agent ──────────────────────────────────────────────────────│
+│  AI Agent                                                       │
 │      │                                                          │
-│      │  1. Read cert files locally                              │
-│      │  2. Generate large JSON with PEM content (~1.5 min)      │
-│      │  3. Call wifi_connect_tls with full PEM                  │
+│      │  credential_store({                                      │
+│      │    client_cert_pem: "-----BEGIN CERT..." (1.4KB)         │
+│      │    private_key_pem: "-----BEGIN KEY..." (1.7KB)          │
+│      │    ca_cert_pem: "-----BEGIN CERT..." (3.5KB)             │
+│      │  })                                                      │
 │      │                                                          │
-│      ▼                                                          │
-│  MCP Server                                                     │
-│      │                                                          │
-│      │  4. Write temp files                                     │
-│      │  5. Connect                                              │
-│      │  6. Cleanup temp files                                   │
+│      │  ❌ AI corrupted base64 during generation                │
+│      │  ❌ Slow (~1.5 min to format large strings)              │
+│      │  ❌ High token usage                                     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Problems:**
-- AI takes ~1.5 min to format/generate large PEM parameters
-- Repeated for every connection attempt
-- PEM content visible in conversation history
-- No way to list/manage stored credentials remotely
+**Problems Discovered:**
+- AI made typos in base64 encoding (e.g., `MDAwMMDow` instead of `MDAwMDAwW`)
+- Large PEM strings are error-prone to generate
+- Slow and expensive in tokens
 
 ---
 
-## Solution: Credential Store
+## Solution: SCP + File Path Approach
 
-Store credentials on the MCP server with a simple ID reference:
+Upload certificates via SCP first, then reference file paths in the credential store:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  New Flow (Fast)                                                │
+│  New Flow: SCP + File Path                                      │
 │                                                                 │
-│  AI Agent ──────────────────────────────────────────────────────│
+│  Step 1: Upload via SCP (binary-safe)                           │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                 │
+│  Local Machine                    Remote MCP Server             │
+│  ┌─────────────┐                  ┌─────────────┐               │
+│  │ client.crt  │ ───── SCP ─────► │ /tmp/certs/ │               │
+│  │ client.key  │                  │  client.crt │               │
+│  │ ca.crt      │                  │  client.key │               │
+│  └─────────────┘                  │  ca.crt     │               │
+│                                   └─────────────┘               │
+│                                                                 │
+│  Step 2: Store with file paths (fast, no corruption)            │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                 │
+│  AI Agent                                                       │
 │      │                                                          │
-│      │  One-time setup:                                         │
-│      │    credential_store (upload cert, key, ca)               │
-│      │    Returns: credential_id = "corp-wifi-2026"             │
+│      │  credential_store({                                      │
+│      │    id: "user01-tsengsyu",                                │
+│      │    identity: "user01@tsengsyu.com",                      │
+│      │    client_cert_path: "/tmp/certs/client.crt",            │
+│      │    private_key_path: "/tmp/certs/client.key",            │
+│      │    ca_cert_path: "/tmp/certs/ca.crt"                     │
+│      │  })                                                      │
 │      │                                                          │
-│      │  Each connection (fast):                                 │
-│      │    wifi_connect_tls(ssid, credential_id="corp-wifi-2026")│
+│      │  ✓ No base64 in tool call                                │
+│      │  ✓ Fast (~200 bytes vs 6KB)                              │
+│      │  ✓ Binary integrity preserved                            │
 │      │                                                          │
 │      ▼                                                          │
 │  MCP Server                                                     │
 │      │                                                          │
-│      │  1. Load certs from store by ID                          │
-│      │  2. Connect using stored certs                           │
+│      │  1. Validate files exist                                 │
+│      │  2. Validate PEM format (openssl verify)                 │
+│      │  3. Copy to credential store                             │
+│      │  4. Set permissions (0600)                               │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -79,31 +101,29 @@ Store credentials on the MCP server with a simple ID reference:
 │                     Credential Lifecycle                        │
 └─────────────────────────────────────────────────────────────────┘
 
-     CREATE                  READ                    DELETE
-        │                      │                        │
-        ▼                      ▼                        ▼
-┌───────────────┐      ┌───────────────┐       ┌───────────────┐
-│credential_store│      │credential_get │       │credential_    │
-│               │      │               │       │  delete       │
-│ id: "my-cert" │      │ id: "my-cert" │       │               │
-│ client_cert   │      │               │       │ id: "my-cert" │
-│ private_key   │      │ Returns:      │       │               │
-│ ca_cert       │      │  - identity   │       │ Removes all   │
-│ identity      │      │  - created_at │       │ cert files    │
-└───────┬───────┘      │  - has_ca     │       └───────────────┘
-        │              │  - cert info  │
-        ▼              └───────────────┘
-┌───────────────┐
-│ Stored at:    │              LIST
-│ ~/.config/    │                │
-│  wpa-mcp/     │                ▼
-│  credentials/ │      ┌───────────────┐
-│  my-cert/     │      │credential_list│
-│   client.crt  │      │               │
-│   client.key  │      │ Returns:      │
-│   ca.crt      │      │  [{id, ...}]  │
-│   meta.json   │      └───────────────┘
-└───────────────┘
+  UPLOAD (Makefile)           STORE (MCP Tool)          USE
+        │                           │                    │
+        ▼                           ▼                    ▼
+┌───────────────┐           ┌───────────────┐    ┌───────────────┐
+│make upload-   │           │credential_    │    │wifi_connect_  │
+│     certs     │           │    store      │    │     tls       │
+│               │           │               │    │               │
+│ Uploads to    │──────────►│ References    │───►│ Uses stored   │
+│ /tmp/certs/   │           │ file paths    │    │ credential_id │
+└───────────────┘           └───────────────┘    └───────────────┘
+
+        LIST                        GET                 DELETE
+          │                          │                     │
+          ▼                          ▼                     ▼
+  ┌───────────────┐          ┌───────────────┐    ┌───────────────┐
+  │credential_list│          │credential_get │    │credential_    │
+  │               │          │               │    │    delete     │
+  │ Returns:      │          │ id: "my-cert" │    │               │
+  │  [{id, ...}]  │          │               │    │ id: "my-cert" │
+  └───────────────┘          │ Returns:      │    │               │
+                             │  - identity   │    │ Removes all   │
+                             │  - cert info  │    │ cert files    │
+                             └───────────────┘    └───────────────┘
 ```
 
 ---
@@ -112,47 +132,102 @@ Store credentials on the MCP server with a simple ID reference:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         MCP Client                              │
-│                  (Claude Desktop / Claude Code)                 │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             │  credential_store / credential_get / etc.
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   src/tools/credentials.ts                      │
+│                    Local Development Machine                    │
+├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  Tools:                                                         │
-│  ├── credential_store    (create/update)                        │
-│  ├── credential_get      (read metadata + optionally PEM)       │
-│  ├── credential_list     (list all stored)                      │
-│  └── credential_delete   (remove)                               │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
+│  Certificate Files              Makefile                        │
+│  ┌─────────────┐               ┌─────────────┐                  │
+│  │ client.crt  │───────────────│ upload-certs│                  │
+│  │ client.key  │               │             │                  │
+│  │ ca.crt      │               │ SCP to      │                  │
+│  └─────────────┘               │ remote host │                  │
+│                                └──────┬──────┘                  │
+│                                       │                         │
+└───────────────────────────────────────┼─────────────────────────┘
+                                        │ SCP
+                                        ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                src/lib/credential-store.ts                      │
+│                    Remote MCP Server (WiFi Client)              │
+├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  CredentialStore class:                                         │
-│  ├── store(id, certs, metadata)                                 │
-│  ├── get(id) → { paths, metadata }                              │
-│  ├── list() → [{ id, metadata }]                                │
-│  ├── delete(id)                                                 │
-│  └── exists(id) → boolean                                       │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    File System Storage                          │
+│  /tmp/certs/                   MCP Server                       │
+│  ┌─────────────┐               ┌─────────────────────────────┐  │
+│  │ client.crt  │◄──────────────│ src/tools/credentials.ts    │  │
+│  │ client.key  │               │                             │  │
+│  │ ca.crt      │               │ credential_store reads from │  │
+│  └─────────────┘               │ paths, validates, copies to │  │
+│        │                       │ permanent store             │  │
+│        │                       └──────────────┬──────────────┘  │
+│        │                                      │                 │
+│        │                                      ▼                 │
+│        │                       ┌─────────────────────────────┐  │
+│        │                       │ src/lib/credential-store.ts │  │
+│        │                       │                             │  │
+│        │                       │ CredentialStore class:      │  │
+│        │                       │ ├── store(id, paths, meta)  │  │
+│        │                       │ ├── get(id)                 │  │
+│        │                       │ ├── list()                  │  │
+│        │                       │ └── delete(id)              │  │
+│        │                       └──────────────┬──────────────┘  │
+│        │                                      │                 │
+│        │                                      ▼                 │
+│        │                       ┌─────────────────────────────┐  │
+│        └──────────────────────►│ ~/.config/wpa-mcp/          │  │
+│          validate & copy       │   credentials/{id}/         │  │
+│                                │     client.crt              │  │
+│                                │     client.key (0600)       │  │
+│                                │     ca.crt                  │  │
+│                                │     meta.json               │  │
+│                                └─────────────────────────────┘  │
 │                                                                 │
-│  ~/.config/wpa-mcp/credentials/                                 │
-│  ├── corp-wifi/                                                 │
-│  │   ├── client.crt                                             │
-│  │   ├── client.key      (mode 0600)                            │
-│  │   ├── ca.crt                                                 │
-│  │   └── meta.json       { identity, created_at, ... }          │
-│  └── guest-network/                                             │
-│      └── ...                                                    │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Makefile: upload-certs
+
+### Usage
+
+```bash
+# Basic usage (all options on command line)
+make upload-certs \
+  CERT_REMOTE_HOST=jack@192.168.15.2 \
+  CERT_CLIENT=./user01@tsengsyu.com_crt.pem \
+  CERT_KEY=./user01@tsengsyu.com_prv.pem \
+  CERT_CA=./tsengsyu.com_crt.pem
+
+# Or configure in .env file
+cat >> .env << 'EOF'
+CERT_REMOTE_HOST=jack@192.168.15.2
+CERT_CLIENT=./user01@tsengsyu.com_crt.pem
+CERT_KEY=./user01@tsengsyu.com_prv.pem
+CERT_CA=./tsengsyu.com_crt.pem
+CERT_REMOTE_DIR=/tmp/certs
+EOF
+
+make upload-certs
+```
+
+### What It Does
+
+1. Validates local certificate files exist
+2. Creates remote directory with secure permissions (700)
+3. Uploads files via SCP (binary-safe)
+4. Sets file permissions (600) on remote
+5. Prints paths for use with `credential_store`
+
+### Output Example
+
+```
+Creating remote directory /tmp/certs...
+Uploading certificates to jack@192.168.15.2:/tmp/certs/
+Uploaded: client.crt, client.key, ca.crt
+
+Certificates uploaded. Use credential_store with paths:
+  client_cert_path: /tmp/certs/client.crt
+  private_key_path: /tmp/certs/client.key
+  ca_cert_path: /tmp/certs/ca.crt
 ```
 
 ---
@@ -161,27 +236,34 @@ Store credentials on the MCP server with a simple ID reference:
 
 ### credential_store
 
-Create or update a stored credential.
+Create or update a stored credential using file paths.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | id | string | Yes | Unique identifier (alphanumeric, dash, underscore) |
 | identity | string | Yes | Identity for EAP (CN from cert) |
-| client_cert_pem | string | Yes | PEM-encoded client certificate |
-| private_key_pem | string | Yes | PEM-encoded private key |
-| ca_cert_pem | string | No | PEM-encoded CA certificate |
-| private_key_password | string | No | Stored encrypted passphrase |
+| **client_cert_path** | string | Yes | Path to client cert on MCP server |
+| **private_key_path** | string | Yes | Path to private key on MCP server |
+| **ca_cert_path** | string | No | Path to CA cert on MCP server |
+| private_key_password | string | No | Passphrase for encrypted key |
 | description | string | No | Human-readable description |
+
+**Note:** PEM string parameters (`client_cert_pem`, `private_key_pem`, `ca_cert_pem`) are **removed** to prevent corruption.
 
 **Returns:**
 ```json
 {
   "success": true,
-  "id": "corp-wifi",
+  "id": "user01-tsengsyu",
   "created": true,
-  "path": "/home/user/.config/wpa-mcp/credentials/corp-wifi"
+  "path": "/home/jack/.config/wpa-mcp/credentials/user01-tsengsyu"
 }
 ```
+
+**Validation performed:**
+- File exists and is readable
+- Valid PEM format (openssl x509/rsa verify)
+- Certificate not expired (warning if < 30 days)
 
 ### credential_get
 
@@ -196,16 +278,16 @@ Read credential metadata and optionally certificate content.
 ```json
 {
   "success": true,
-  "id": "corp-wifi",
-  "identity": "device.example.com",
-  "description": "Corporate WiFi cert",
+  "id": "user01-tsengsyu",
+  "identity": "user01@tsengsyu.com",
+  "description": "EAP-TLS cert for user01",
   "created_at": "2026-01-13T10:00:00Z",
   "has_ca_cert": true,
   "has_key_password": false,
   "cert_info": {
-    "subject": "CN=device.example.com",
-    "issuer": "CN=Corporate CA",
-    "not_after": "2027-01-13T00:00:00Z"
+    "subject": "CN=user01@tsengsyu.com",
+    "issuer": "CN=Root CA - tsengsyu.com",
+    "not_after": "2026-04-13T00:00:00Z"
   }
 }
 ```
@@ -214,19 +296,17 @@ Read credential metadata and optionally certificate content.
 
 List all stored credentials.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-
 **Returns:**
 ```json
 {
   "success": true,
   "credentials": [
     {
-      "id": "corp-wifi",
-      "identity": "device.example.com",
-      "description": "Corporate WiFi",
-      "created_at": "2026-01-13T10:00:00Z"
+      "id": "user01-tsengsyu",
+      "identity": "user01@tsengsyu.com",
+      "description": "EAP-TLS cert for user01",
+      "created_at": "2026-01-13T10:00:00Z",
+      "has_ca_cert": true
     }
   ],
   "count": 1
@@ -245,7 +325,7 @@ Remove a stored credential.
 ```json
 {
   "success": true,
-  "id": "corp-wifi",
+  "id": "user01-tsengsyu",
   "deleted": true
 }
 ```
@@ -261,65 +341,105 @@ Add optional `credential_id` parameter:
 | ssid | string | Yes | Network SSID |
 | credential_id | string | No* | Reference to stored credential |
 | identity | string | No* | Identity (required if no credential_id) |
-| client_cert_pem | string | No* | PEM cert (required if no credential_id) |
-| private_key_pem | string | No* | PEM key (required if no credential_id) |
-| ca_cert_pem | string | No | PEM CA cert |
+| client_cert_path | string | No* | Path to cert (required if no credential_id) |
+| private_key_path | string | No* | Path to key (required if no credential_id) |
+| ca_cert_path | string | No | Path to CA cert |
 | ... | | | (other params unchanged) |
 
-*Either `credential_id` OR (`identity` + `client_cert_pem` + `private_key_pem`) required.
+*Either `credential_id` OR (`identity` + `client_cert_path` + `private_key_path`) required.
 
 **Example with credential_id:**
 ```json
 {
-  "ssid": "CorpWiFi",
-  "credential_id": "corp-wifi"
+  "ssid": "8021x reference",
+  "credential_id": "user01-tsengsyu"
 }
+```
+
+---
+
+## Complete Workflow Example
+
+### Step 1: Upload Certificates
+
+```bash
+# On local machine
+make upload-certs \
+  CERT_REMOTE_HOST=jack@192.168.15.2 \
+  CERT_CLIENT=./user01@tsengsyu.com_crt.pem \
+  CERT_KEY=./user01@tsengsyu.com_prv.pem \
+  CERT_CA=./letsencrypt-ca.pem
+```
+
+### Step 2: Store Credential (AI/MCP)
+
+```
+User: Store the uploaded certificates
+
+AI: I'll store the credential using the uploaded file paths.
+
+credential_store({
+  "id": "user01-tsengsyu",
+  "identity": "user01@tsengsyu.com",
+  "client_cert_path": "/tmp/certs/client.crt",
+  "private_key_path": "/tmp/certs/client.key",
+  "ca_cert_path": "/tmp/certs/ca.crt",
+  "description": "EAP-TLS cert for user01"
+})
+
+Result: Credential 'user01-tsengsyu' stored successfully.
+```
+
+### Step 3: Connect (AI/MCP)
+
+```
+User: Connect to 8021x reference
+
+AI: Connecting using stored credential:
+
+wifi_connect_tls({
+  "ssid": "8021x reference",
+  "credential_id": "user01-tsengsyu"
+})
+
+Result: Connected successfully!
 ```
 
 ---
 
 ## Implementation
 
-### Files to Create
-
-| File | Description |
-|------|-------------|
-| `src/lib/credential-store.ts` | CredentialStore class with CRUD operations |
-| `src/tools/credentials.ts` | MCP tool definitions |
-
 ### Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/index.ts` | Register credential tools |
-| `src/tools/wifi.ts` | Add credential_id support to wifi_connect_tls |
+| `src/lib/credential-store.ts` | Change from PEM strings to file paths |
+| `src/tools/credentials.ts` | Update parameters, add validation |
+| `Makefile` | Add `upload-certs` target (DONE) |
+| `.env.example` | Add cert path variables (DONE) |
 
----
+### Validation Logic
 
-## Storage Format
+```typescript
+// In credential-store.ts
+async function validateCertFile(path: string): Promise<void> {
+  // Check file exists
+  if (!fs.existsSync(path)) {
+    throw new Error(`File not found: ${path}`);
+  }
 
-### Directory Structure
+  // Validate PEM format using openssl
+  const result = await exec(`openssl x509 -in "${path}" -noout -text`);
+  if (result.exitCode !== 0) {
+    throw new Error(`Invalid certificate: ${path}`);
+  }
+}
 
-```
-~/.config/wpa-mcp/credentials/
-└── {credential_id}/
-    ├── client.crt     # PEM certificate (mode 0600)
-    ├── client.key     # PEM private key (mode 0600)
-    ├── ca.crt         # PEM CA cert (optional, mode 0600)
-    └── meta.json      # Metadata
-```
-
-### meta.json
-
-```json
-{
-  "id": "corp-wifi",
-  "identity": "device.example.com",
-  "description": "Corporate WiFi certificate",
-  "created_at": "2026-01-13T10:00:00Z",
-  "updated_at": "2026-01-13T10:00:00Z",
-  "has_ca_cert": true,
-  "has_key_password": false
+async function validateKeyFile(path: string): Promise<void> {
+  const result = await exec(`openssl rsa -in "${path}" -check -noout`);
+  if (result.exitCode !== 0) {
+    throw new Error(`Invalid private key: ${path}`);
+  }
 }
 ```
 
@@ -329,10 +449,10 @@ Add optional `credential_id` parameter:
 
 | Concern | Mitigation |
 |---------|------------|
-| Private key exposure | File mode 0600, directory mode 0700 |
-| Credential enumeration | ID validation, no wildcards |
-| Key password storage | Stored in meta.json (encrypted at rest by OS) |
-| Unauthorized access | Follows OS user permissions |
+| Temp files exposed | Upload to `/tmp/certs/` with 700/600 permissions |
+| Private key in transit | SCP uses SSH encryption |
+| Credential store access | Directory mode 0700, file mode 0600 |
+| Temp file cleanup | User responsibility (or add cleanup command) |
 
 ---
 
@@ -340,99 +460,22 @@ Add optional `credential_id` parameter:
 
 | Error | Message | Resolution |
 |-------|---------|------------|
-| ID not found | `Credential 'xxx' not found` | Use credential_list to see available |
-| Invalid ID | `Invalid credential ID: must be alphanumeric, dash, underscore` | Fix ID format |
-| Invalid PEM | `Invalid PEM format for client_cert` | Check certificate format |
-| Permission denied | `Cannot write to credential store` | Check directory permissions |
+| File not found | `File not found: /tmp/certs/client.crt` | Run `make upload-certs` first |
+| Invalid PEM | `Invalid certificate format` | Check file is valid PEM |
+| Permission denied | `Cannot read file: permission denied` | Check file permissions |
+| ID not found | `Credential 'xxx' not found` | Use `credential_list` to see available |
 
 ---
 
-## Usage Examples
+## Benefits of New Approach
 
-### Store a New Credential
-
-```
-User: Store my corporate WiFi certificate
-
-AI: I'll store the credential. First, let me read the certificate files.
-    [reads local cert files]
-    
-    Now storing with credential_store:
-    {
-      "id": "corp-wifi",
-      "identity": "device.example.com", 
-      "client_cert_pem": "-----BEGIN CERTIFICATE-----...",
-      "private_key_pem": "-----BEGIN PRIVATE KEY-----...",
-      "ca_cert_pem": "-----BEGIN CERTIFICATE-----...",
-      "description": "Corporate WiFi - expires 2027"
-    }
-    
-    Credential stored successfully as 'corp-wifi'.
-```
-
-### Connect Using Stored Credential
-
-```
-User: Connect to CorpWiFi
-
-AI: Connecting using stored credential:
-    {
-      "ssid": "CorpWiFi",
-      "credential_id": "corp-wifi"
-    }
-    
-    Connected successfully!
-```
-
-### List and Manage Credentials
-
-```
-User: What credentials do I have stored?
-
-AI: [calls credential_list]
-    
-    You have 2 stored credentials:
-    1. corp-wifi - device.example.com (expires 2027-01-13)
-    2. guest-cert - guest.example.com (expires 2026-06-01)
-```
-
----
-
-## Testing
-
-### Unit Tests
-
-```bash
-# Test credential store operations
-npm test -- --grep "CredentialStore"
-```
-
-### Manual Testing
-
-```bash
-# Store credential
-curl -X POST http://localhost:3000/mcp -d '{
-  "method": "tools/call",
-  "params": {
-    "name": "credential_store",
-    "arguments": {
-      "id": "test-cert",
-      "identity": "test@example.com",
-      "client_cert_pem": "...",
-      "private_key_pem": "..."
-    }
-  }
-}'
-
-# List credentials
-curl -X POST http://localhost:3000/mcp -d '{
-  "method": "tools/call",
-  "params": {
-    "name": "credential_list",
-    "arguments": {}
-  }
-}'
-```
+| Aspect | Before (PEM in call) | After (File path) |
+|--------|---------------------|-------------------|
+| Data integrity | ❌ AI can corrupt base64 | ✓ Binary copy via SCP |
+| Token usage | ❌ ~6KB per store call | ✓ ~200 bytes |
+| Speed | ❌ Slow (AI generates) | ✓ Fast |
+| Validation | ❌ After corruption | ✓ Before storing |
+| Reusability | ❌ Re-generate each time | ✓ Upload once, use many |
 
 ---
 

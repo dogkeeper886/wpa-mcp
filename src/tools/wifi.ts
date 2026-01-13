@@ -3,7 +3,6 @@ import { z } from "zod";
 import { WpaCli } from "../lib/wpa-cli.js";
 import { WpaDaemon, LogFilter } from "../lib/wpa-daemon.js";
 import { DhcpManager } from "../lib/dhcp-manager.js";
-import { writeTempCerts } from "../lib/cert-manager.js";
 import { credentialStore } from "../lib/credential-store.js";
 import type {
   MacAddressConfig,
@@ -638,7 +637,7 @@ export function registerWifiTools(
         .optional()
         .describe(
           "Reference to stored credential (from credential_store). " +
-            "If provided, uses stored certs instead of PEM parameters.",
+            "If provided, uses stored certs instead of path parameters.",
         ),
       identity: z
         .string()
@@ -646,23 +645,23 @@ export function registerWifiTools(
         .describe(
           "Identity (typically CN from client certificate). Required if credential_id not provided.",
         ),
-      client_cert_pem: z
+      client_cert_path: z
         .string()
         .optional()
         .describe(
-          "PEM-encoded client certificate. Required if credential_id not provided.",
+          "Path to client certificate file. Required if credential_id not provided.",
         ),
-      private_key_pem: z
+      private_key_path: z
         .string()
         .optional()
         .describe(
-          "PEM-encoded private key. Required if credential_id not provided.",
+          "Path to private key file. Required if credential_id not provided.",
         ),
-      ca_cert_pem: z
+      ca_cert_path: z
         .string()
         .optional()
         .describe(
-          "PEM-encoded CA certificate for server validation. If omitted, server certificate is not verified (insecure, for testing only).",
+          "Path to CA certificate for server validation. If omitted, server certificate is not verified (insecure, for testing only).",
         ),
       private_key_password: z
         .string()
@@ -705,9 +704,9 @@ export function registerWifiTools(
       ssid,
       credential_id,
       identity,
-      client_cert_pem,
-      private_key_pem,
-      ca_cert_pem,
+      client_cert_path,
+      private_key_path,
+      ca_cert_path,
       private_key_password,
       interface: iface,
       mac_mode,
@@ -721,7 +720,6 @@ export function registerWifiTools(
       let caCertPath: string | undefined;
       let resolvedIdentity: string;
       let resolvedKeyPassword: string | undefined = private_key_password;
-      let cleanupFn: (() => Promise<void>) | undefined;
 
       try {
         if (credential_id) {
@@ -753,7 +751,7 @@ export function registerWifiTools(
               await credentialStore.getKeyPassword(credential_id);
           }
         } else {
-          // Use PEM parameters - validate required fields
+          // Use file path parameters - validate required fields
           if (!identity) {
             return {
               content: [
@@ -769,7 +767,7 @@ export function registerWifiTools(
               isError: true,
             };
           }
-          if (!client_cert_pem) {
+          if (!client_cert_path) {
             return {
               content: [
                 {
@@ -777,14 +775,14 @@ export function registerWifiTools(
                   text: JSON.stringify({
                     success: false,
                     error:
-                      "client_cert_pem is required when credential_id is not provided",
+                      "client_cert_path is required when credential_id is not provided",
                   }),
                 },
               ],
               isError: true,
             };
           }
-          if (!private_key_pem) {
+          if (!private_key_path) {
             return {
               content: [
                 {
@@ -792,7 +790,7 @@ export function registerWifiTools(
                   text: JSON.stringify({
                     success: false,
                     error:
-                      "private_key_pem is required when credential_id is not provided",
+                      "private_key_path is required when credential_id is not provided",
                   }),
                 },
               ],
@@ -800,18 +798,11 @@ export function registerWifiTools(
             };
           }
 
-          // Write temp files
-          const certFiles = await writeTempCerts(
-            client_cert_pem,
-            private_key_pem,
-            ca_cert_pem,
-          );
-
-          clientCertPath = certFiles.clientCert;
-          privateKeyPath = certFiles.privateKey;
-          caCertPath = certFiles.caCert;
+          // Use file paths directly
+          clientCertPath = client_cert_path;
+          privateKeyPath = private_key_path;
+          caCertPath = ca_cert_path;
           resolvedIdentity = identity;
-          cleanupFn = certFiles.cleanup;
         }
 
         daemon?.markCommandStart();
@@ -899,11 +890,6 @@ export function registerWifiTools(
           ],
           isError: true,
         };
-      } finally {
-        // Clean up temp certificate files if we created them
-        if (cleanupFn) {
-          await cleanupFn();
-        }
       }
     },
   );

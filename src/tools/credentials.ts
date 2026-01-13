@@ -7,8 +7,8 @@ export function registerCredentialTools(server: McpServer): void {
   server.tool(
     "credential_store",
     "Store EAP-TLS certificates for later use with wifi_connect_tls. " +
-      "Certificates are stored securely on the MCP server. " +
-      "Use credential_id parameter in wifi_connect_tls to connect without passing full PEM content.",
+      "Upload certificates via SCP first, then reference file paths here. " +
+      "Files are validated with openssl before copying to the credential store.",
     {
       id: z
         .string()
@@ -18,12 +18,12 @@ export function registerCredentialTools(server: McpServer): void {
       identity: z
         .string()
         .describe("Identity for EAP authentication (typically CN from client certificate)"),
-      client_cert_pem: z.string().describe("PEM-encoded client certificate"),
-      private_key_pem: z.string().describe("PEM-encoded private key"),
-      ca_cert_pem: z
+      client_cert_path: z.string().describe("Path to client certificate file on MCP server"),
+      private_key_path: z.string().describe("Path to private key file on MCP server"),
+      ca_cert_path: z
         .string()
         .optional()
-        .describe("PEM-encoded CA certificate for server validation"),
+        .describe("Path to CA certificate file on MCP server"),
       private_key_password: z
         .string()
         .optional()
@@ -36,9 +36,9 @@ export function registerCredentialTools(server: McpServer): void {
     async ({
       id,
       identity,
-      client_cert_pem,
-      private_key_pem,
-      ca_cert_pem,
+      client_cert_path,
+      private_key_path,
+      ca_cert_path,
       private_key_password,
       description,
     }) => {
@@ -46,9 +46,9 @@ export function registerCredentialTools(server: McpServer): void {
         const result = await credentialStore.store(
           id,
           identity,
-          client_cert_pem,
-          private_key_pem,
-          ca_cert_pem,
+          client_cert_path,
+          private_key_path,
+          ca_cert_path,
           private_key_password,
           description
         );

@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, mkdir, rm, access, constants } from 'fs/promises';
+import { readFile, writeFile, readdir, mkdir, rm, access, constants, copyFile } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { spawn } from 'child_process';
@@ -50,16 +50,74 @@ function validateId(id: string): void {
 }
 
 /**
- * Validates PEM format.
+ * Checks if a file exists and is readable.
  */
-function validatePem(pem: string, type: string): void {
-  if (!pem || typeof pem !== 'string') {
-    throw new Error(`${type} is required`);
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.R_OK);
+    return true;
+  } catch {
+    return false;
   }
-  const trimmed = pem.trim();
-  if (!trimmed.includes('-----BEGIN') || !trimmed.includes('-----END')) {
-    throw new Error(`Invalid PEM format for ${type}`);
+}
+
+/**
+ * Validates a certificate file using openssl.
+ */
+async function validateCertFile(path: string, label: string): Promise<void> {
+  if (!await fileExists(path)) {
+    throw new Error(`${label} file not found: ${path}`);
   }
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn('openssl', ['x509', '-in', path, '-noout']);
+    let stderr = '';
+
+    proc.stderr.on('data', (data) => { stderr += data; });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`Invalid certificate file: ${path}`, { stderr });
+        reject(new Error(`Invalid certificate file (${label}): ${path}`));
+      } else {
+        resolve();
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to validate ${label}: ${err.message}`));
+    });
+  });
+}
+
+/**
+ * Validates a private key file using openssl.
+ */
+async function validateKeyFile(path: string): Promise<void> {
+  if (!await fileExists(path)) {
+    throw new Error(`Private key file not found: ${path}`);
+  }
+
+  return new Promise((resolve, reject) => {
+    // Try RSA first, then EC
+    const proc = spawn('openssl', ['pkey', '-in', path, '-noout']);
+    let stderr = '';
+
+    proc.stderr.on('data', (data) => { stderr += data; });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`Invalid private key file: ${path}`, { stderr });
+        reject(new Error(`Invalid private key file: ${path}`));
+      } else {
+        resolve();
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to validate private key: ${err.message}`));
+    });
+  });
 }
 
 /**
@@ -137,26 +195,30 @@ export class CredentialStore {
   }
 
   /**
-   * Store a credential (create or update).
+   * Store a credential by copying from file paths.
+   * Files are validated with openssl before copying.
    */
   async store(
     id: string,
     identity: string,
-    clientCertPem: string,
-    privateKeyPem: string,
-    caCertPem?: string,
+    clientCertPath: string,
+    privateKeyPath: string,
+    caCertPath?: string,
     privateKeyPassword?: string,
     description?: string
   ): Promise<{ created: boolean; path: string }> {
     validateId(id);
-    validatePem(clientCertPem, 'client_cert_pem');
-    validatePem(privateKeyPem, 'private_key_pem');
-    if (caCertPem) {
-      validatePem(caCertPem, 'ca_cert_pem');
-    }
 
     if (!identity || typeof identity !== 'string') {
       throw new Error('Identity is required');
+    }
+
+    // Validate source files exist and are valid
+    console.log('Validating certificate files', { id, clientCertPath, privateKeyPath, caCertPath });
+    await validateCertFile(clientCertPath, 'client_cert');
+    await validateKeyFile(privateKeyPath);
+    if (caCertPath) {
+      await validateCertFile(caCertPath, 'ca_cert');
     }
 
     await this.ensureBaseDir();
@@ -167,16 +229,22 @@ export class CredentialStore {
     // Create credential directory
     await mkdir(credDir, { recursive: true, mode: 0o700 });
 
-    // Write certificate files
-    const clientCertPath = join(credDir, 'client.crt');
-    const privateKeyPath = join(credDir, 'client.key');
-    const caCertPath = join(credDir, 'ca.crt');
+    // Copy certificate files to credential store
+    const destClientCert = join(credDir, 'client.crt');
+    const destPrivateKey = join(credDir, 'client.key');
+    const destCaCert = join(credDir, 'ca.crt');
 
-    await writeFile(clientCertPath, clientCertPem.trim() + '\n', { mode: 0o600 });
-    await writeFile(privateKeyPath, privateKeyPem.trim() + '\n', { mode: 0o600 });
+    console.log('Copying certificate files to credential store', { credDir });
+    await copyFile(clientCertPath, destClientCert);
+    await copyFile(privateKeyPath, destPrivateKey);
 
-    if (caCertPem) {
-      await writeFile(caCertPath, caCertPem.trim() + '\n', { mode: 0o600 });
+    // Set secure permissions
+    await writeFile(destClientCert, await readFile(destClientCert), { mode: 0o600 });
+    await writeFile(destPrivateKey, await readFile(destPrivateKey), { mode: 0o600 });
+
+    if (caCertPath) {
+      await copyFile(caCertPath, destCaCert);
+      await writeFile(destCaCert, await readFile(destCaCert), { mode: 0o600 });
     }
 
     // Write metadata
@@ -187,20 +255,20 @@ export class CredentialStore {
       description,
       created_at: existed ? (await this.getMetadata(id))?.created_at || now : now,
       updated_at: now,
-      has_ca_cert: !!caCertPem,
+      has_ca_cert: !!caCertPath,
       has_key_password: !!privateKeyPassword,
     };
 
-    // Store password hint if provided (not the actual password for security)
     const metaPath = join(credDir, 'meta.json');
     await writeFile(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
 
     // If password provided, store it securely
     if (privateKeyPassword) {
-      const passwordPath = join(credDir, '.key_password');
-      await writeFile(passwordPath, privateKeyPassword, { mode: 0o600 });
+      const passwordFilePath = join(credDir, '.key_password');
+      await writeFile(passwordFilePath, privateKeyPassword, { mode: 0o600 });
     }
 
+    console.log('Credential stored successfully', { id, created: !existed });
     return { created: !existed, path: credDir };
   }
 
