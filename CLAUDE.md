@@ -93,3 +93,125 @@ The server can run wpa_supplicant as a managed subprocess (WpaDaemon) or use an 
 3. `enable_network` + `select_network` - triggers connection
 4. `waitForState('COMPLETED')` - polls status until connected
 5. DhcpManager runs `dhclient` to obtain IP address
+
+## Code Review Guidelines
+
+### Core Principles
+
+#### Readability First
+- Code is read more than written - optimize for the reader
+- Separate concerns into focused modules (e.g., file I/O vs business logic)
+- Use clear, descriptive names that explain intent
+- Add comments for "why", not "what"
+- Keep functions short enough to understand at a glance
+
+#### Consistency Over Cleverness
+- Same patterns for same problems
+- If you solve authentication one way, solve it the same way everywhere
+- Consistent naming conventions throughout the codebase
+- Follow existing code style in the file you're editing
+
+#### Fail Fast with Context
+- Let code fail immediately when inputs are invalid
+- Include enough context in errors for debugging (what failed, what was expected)
+- Use structured error types when helpful for handling
+- Propagate errors up with added context, don't swallow them
+
+#### Observability by Design
+- Log at appropriate levels: error, warn, info, debug
+- Include correlation IDs for request tracing
+- Log at boundaries: incoming requests, outgoing calls, state changes
+- Structure logs as JSON for parsing (timestamp, level, message, context)
+- Never log sensitive data (passwords, keys, tokens, PII)
+
+#### Metrics for Operations
+- Track request counts, latencies, error rates
+- Instrument critical paths (connection attempts, auth flows)
+- Use histograms for latency, counters for events
+- Include labels for dimensionality (method, status, error_type)
+
+### New Feature Guidelines
+
+#### Design Documents Required
+- Before implementing a new feature, create a design document in `/docs`
+- Document the original design intent, architecture decisions, and rationale
+- This preserves context for future maintenance and prevents design drift
+- Keep design docs simple: problem statement, proposed solution, key decisions
+
+### What to Look For
+
+#### ✅ Approve
+- Clear separation of concerns
+- Code that follows existing patterns in the codebase
+- Appropriate logging at boundaries and errors
+- Clear, descriptive variable/function names
+- Proper error handling with context
+
+#### ❌ Request Changes
+- Mixed concerns in a single function/module
+- Missing error context (bare throws, swallowed errors)
+- Missing logs at critical operations
+- Logging sensitive information
+- Different patterns for the same type of problem
+- Files containing private information (passwords, API keys, tokens, credentials, internal URLs)
+
+### Review Checklist
+
+1. **Is it readable?** Can a new developer understand this in 5 minutes?
+2. **Does it follow existing patterns?** Look for similar code elsewhere in the codebase
+3. **Are errors informative?** Do they include context for debugging?
+4. **Is logging appropriate?** Boundaries logged, sensitive data excluded?
+5. **Are concerns separated?** Each module/function does one thing?
+6. **No private information?** Check for passwords, API keys, tokens, internal URLs, or credentials
+
+### Logging Guidelines
+
+```javascript
+// Good - structured, contextual, appropriate level
+logger.info('wifi connection started', { ssid, interface: iface, requestId });
+logger.error('connection failed', { ssid, error: err.message, elapsed_ms, requestId });
+
+// Bad - unstructured, missing context
+console.log('connecting...');
+console.log('error: ' + err);
+
+// Good - debug for detailed tracing
+logger.debug('wpa_cli command', { command: 'add_network', result: networkId });
+
+// Bad - logging sensitive data
+logger.info('connecting with password', { ssid, password }); // NEVER DO THIS
+```
+
+### Error Handling
+
+```javascript
+// Good - context preserved, actionable
+async function connectTls(ssid, identity, certs) {
+  const networkId = await wpa.addNetwork();
+  
+  try {
+    await wpa.setNetwork(networkId, 'ssid', ssid);
+    await wpa.setNetwork(networkId, 'eap', 'TLS');
+    // ...
+  } catch (err) {
+    await wpa.removeNetwork(networkId).catch(() => {});
+    throw new Error(`EAP-TLS connection to ${ssid} failed: ${err.message}`);
+  }
+}
+
+// Bad - swallowed error, no context
+async function connectTls(ssid, identity, certs) {
+  try {
+    // ...
+  } catch (err) {
+    return { success: false }; // What failed? Why?
+  }
+}
+```
+
+### Remember
+- Readability and maintainability are non-negotiable
+- Good logs save hours of debugging
+- Errors should tell you what went wrong and where
+- Separate concerns, even if it means more files
+- Consistency beats perfection
