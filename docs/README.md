@@ -204,7 +204,7 @@ Add to Claude Desktop config:
 
 ```
 User: "Scan for WiFi networks"
-User: "Connect to MyNetwork with password mypassword123"
+User: "Connect to MyNetwork with password <your-password>"
 ```
 
 ---

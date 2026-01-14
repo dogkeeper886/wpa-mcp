@@ -116,11 +116,11 @@ Connect to WPA2-Enterprise networks using PEAP or TTLS with password authenticat
 ```json
 {
   "ssid": "CorpWiFi",
-  "identity": "user@company.com",
-  "password": "userpassword",
+  "identity": "user@example.com",
+  "password": "<password>",
   "eap_method": "PEAP",
   "phase2": "MSCHAPV2",
-  "anonymous_identity": "anonymous@company.com"
+  "anonymous_identity": "anonymous@example.com"
 }
 ```
 
@@ -131,7 +131,7 @@ Connect to WPA2-Enterprise networks using PEAP or TTLS with password authenticat
   "ssid": "CorpWiFi",
   "ip_address": "10.0.1.50",
   "eap_method": "PEAP",
-  "identity": "user@company.com"
+  "identity": "user@example.com"
 }
 ```
 
@@ -172,7 +172,7 @@ Connect using EAP-TLS certificate-based authentication (no password).
 ```json
 {
   "ssid": "SecureWiFi",
-  "identity": "device.company.com",
+  "identity": "device.example.com",
   "client_cert_path": "/tmp/certs/client.crt",
   "private_key_path": "/tmp/certs/client.key",
   "ca_cert_path": "/tmp/certs/ca.crt"
@@ -186,7 +186,7 @@ Connect using EAP-TLS certificate-based authentication (no password).
   "ssid": "SecureWiFi",
   "ip_address": "10.0.2.100",
   "eap_method": "TLS",
-  "identity": "device.company.com"
+  "identity": "device.example.com"
 }
 ```
 
@@ -530,11 +530,11 @@ Store EAP-TLS certificates for reuse.
 ```json
 {
   "id": "user01-corp",
-  "identity": "user01@company.com",
+  "identity": "user01@example.com",
   "client_cert_path": "/tmp/certs/client.crt",
   "private_key_path": "/tmp/certs/client.key",
   "ca_cert_path": "/tmp/certs/ca.crt",
-  "description": "User01 corporate certificate"
+  "description": "User01 certificate"
 }
 ```
 
@@ -573,14 +573,14 @@ Retrieve credential metadata.
 {
   "success": true,
   "id": "user01-corp",
-  "identity": "user01@company.com",
-  "description": "User01 corporate certificate",
+  "identity": "user01@example.com",
+  "description": "User01 certificate",
   "created_at": "2026-01-14T10:00:00Z",
   "has_ca_cert": true,
   "has_key_password": false,
   "cert_info": {
-    "subject": "CN=user01@company.com",
-    "issuer": "CN=Corporate CA",
+    "subject": "CN=user01@example.com",
+    "issuer": "CN=Example CA",
     "not_after": "2027-01-14T00:00:00Z"
   }
 }
@@ -606,8 +606,8 @@ List all stored credentials.
   "credentials": [
     {
       "id": "user01-corp",
-      "identity": "user01@company.com",
-      "description": "User01 corporate certificate",
+      "identity": "user01@example.com",
+      "description": "User01 certificate",
       "created_at": "2026-01-14T10:00:00Z",
       "has_ca_cert": true
     }

@@ -485,5 +485,5 @@ async function validateKeyFile(path: string): Promise<void> {
 
 ## References
 
-- [802.1x-credential-auth.md](./802.1x-credential-auth.md) - Original EAP-TLS design
+- [10_EAP-TLS_Design.md](./10_EAP-TLS_Design.md) - Original EAP-TLS design
 - [XDG Base Directory Spec](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) - Config directory location
