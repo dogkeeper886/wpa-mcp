@@ -607,27 +607,27 @@ export class WpaCli {
     const credId = await this.addCred();
 
     try {
-      // Set realm (quoted string)
-      await this.setCred(credId, "realm", `"${realm}"`);
+      // Set realm (quoted string - use single quotes to pass double quotes through shell)
+      await this.setCred(credId, "realm", `'"${realm}"'`);
 
       // Set domain (quoted string)
-      await this.setCred(credId, "domain", `"${domain}"`);
+      await this.setCred(credId, "domain", `'"${domain}"'`);
 
       // Set EAP method to TLS
       await this.setCred(credId, "eap", "TLS");
 
       // Set identity (quoted string)
-      await this.setCred(credId, "username", `"${identity}"`);
+      await this.setCred(credId, "username", `'"${identity}"'`);
 
       // Set client certificate (quoted path)
-      await this.setCred(credId, "client_cert", `"${clientCertPath}"`);
+      await this.setCred(credId, "client_cert", `'"${clientCertPath}"'`);
 
       // Set private key (quoted path)
-      await this.setCred(credId, "private_key", `"${privateKeyPath}"`);
+      await this.setCred(credId, "private_key", `'"${privateKeyPath}"'`);
 
       // Set CA certificate if provided (quoted path)
       if (caCertPath) {
-        await this.setCred(credId, "ca_cert", `"${caCertPath}"`);
+        await this.setCred(credId, "ca_cert", `'"${caCertPath}"'`);
       }
 
       // Set private key password if provided (quoted string)
@@ -635,7 +635,7 @@ export class WpaCli {
         await this.setCred(
           credId,
           "private_key_passwd",
-          `"${privateKeyPassword}"`,
+          `'"${privateKeyPassword}"'`,
         );
       }
 
