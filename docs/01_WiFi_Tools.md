@@ -23,7 +23,8 @@ This document provides a complete reference for all WiFi-related MCP tools, incl
 │  wifi_connect                  wifi_scan                        │
 │  wifi_connect_eap              wifi_status                      │
 │  wifi_connect_tls              wifi_list_networks               │
-│  wifi_disconnect               wifi_forget                      │
+│  wifi_hs20_connect (NEW)       wifi_forget                      │
+│  wifi_disconnect                                                │
 │  wifi_reconnect                                                 │
 │                                                                 │
 │  Diagnostics                   Credentials                      │
@@ -189,6 +190,69 @@ Connect using EAP-TLS certificate-based authentication (no password).
   "identity": "device.example.com"
 }
 ```
+
+---
+
+### wifi_hs20_connect
+
+Connect to Hotspot 2.0 (Passpoint) networks using EAP-TLS and ANQP auto-discovery.
+
+**Overview:**
+Hotspot 2.0 (HS20/Passpoint) enables automatic discovery and connection to compatible 
+networks using ANQP (Access Network Query Protocol). Instead of specifying an SSID, 
+you provide realm and domain, and wpa_supplicant automatically finds and connects 
+to matching networks.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| credential_id | string | Yes | Reference to stored credential |
+| realm | string | Yes | Home realm for NAI matching (e.g., 'corp.example.com') |
+| domain | string | Yes | Home domain for domain list matching |
+| priority | number | No | Selection priority (default: 1) |
+| interface | string | No | WiFi interface (default: wlan0) |
+
+**Example:**
+```json
+{
+  "credential_id": "user01-corp",
+  "realm": "corp.example.com",
+  "domain": "example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Connected via HS20",
+  "credential_id": "user01-corp",
+  "realm": "corp.example.com",
+  "domain": "example.com",
+  "status": {
+    "wpa_state": "COMPLETED",
+    "ssid": "Passpoint-Network",
+    "ip_address": "10.0.1.50"
+  }
+}
+```
+
+**How It Works:**
+1. Creates an HS20 credential with realm, domain, and EAP-TLS settings
+2. Triggers `interworking_select auto` for ANQP discovery
+3. wpa_supplicant scans for HS20 networks and queries them via ANQP
+4. Networks matching the realm/domain are automatically selected
+5. EAP-TLS authentication proceeds with stored certificates
+6. DHCP obtains IP address on successful connection
+
+**Troubleshooting:**
+- Use `wifi_get_debug_logs` with `filter="eap"` for authentication issues
+- Connection timeout usually means no matching HS20 network was found
+- Verify realm/domain match what the network advertises via ANQP
+
+**Related:**
+- [12_HS20_Design.md](./12_HS20_Design.md) - Detailed HS20 design document
 
 ---
 
@@ -675,3 +739,4 @@ Delete a stored credential.
 - [00_Architecture.md](./00_Architecture.md) - System architecture
 - [10_EAP-TLS_Design.md](./10_EAP-TLS_Design.md) - EAP-TLS design
 - [11_Credential_Store_Design.md](./11_Credential_Store_Design.md) - Credential storage design
+- [12_HS20_Design.md](./12_HS20_Design.md) - Hotspot 2.0 (Passpoint) design

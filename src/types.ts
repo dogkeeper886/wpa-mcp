@@ -26,21 +26,21 @@ export interface ConnectionStatus {
 
 // MAC Address Randomization Types
 export type MacAddressMode =
-  | 'device'            // Use real device MAC (wpa_supplicant value: 0)
-  | 'random'            // New random MAC each connection (wpa_supplicant value: 1)
-  | 'persistent-random' // Same random MAC across reboots (wpa_supplicant value: 2)
-  | 'specific';         // User-provided MAC address
+  | "device" // Use real device MAC (wpa_supplicant value: 0)
+  | "random" // New random MAC each connection (wpa_supplicant value: 1)
+  | "persistent-random" // Same random MAC across reboots (wpa_supplicant value: 2)
+  | "specific"; // User-provided MAC address
 
 export type PreassocMacMode =
-  | 'disabled'          // Use real MAC during scan (wpa_supplicant value: 0)
-  | 'random'            // Random MAC during scan (wpa_supplicant value: 1)
-  | 'persistent-random';// Persistent random during scan (wpa_supplicant value: 2)
+  | "disabled" // Use real MAC during scan (wpa_supplicant value: 0)
+  | "random" // Random MAC during scan (wpa_supplicant value: 1)
+  | "persistent-random"; // Persistent random during scan (wpa_supplicant value: 2)
 
 export interface MacAddressConfig {
   mode: MacAddressMode;
-  address?: string;            // Required only when mode is 'specific'
+  address?: string; // Required only when mode is 'specific'
   preassocMode?: PreassocMacMode;
-  randAddrLifetime?: number;   // Seconds before rotating random MAC (default: 60)
+  randAddrLifetime?: number; // Seconds before rotating random MAC (default: 60)
 }
 
 // Connectivity Types
@@ -64,4 +64,11 @@ export interface ScriptInfo {
 
 export interface ScriptVariables {
   [key: string]: string;
+}
+
+// Hotspot 2.0 (HS20) Types
+export interface Hs20Config {
+  realm: string; // Home realm for NAI matching (e.g., "corp.example.com")
+  domain: string; // Home domain for domain list matching (e.g., "example.com")
+  priority?: number; // Selection priority when multiple networks match (default: 1)
 }
