@@ -1,9 +1,13 @@
-# Credential Store for EAP-TLS
+# Credential Store Design
 
-**Status:** In Progress
-**Created:** 2026-01-13
-**Updated:** 2026-01-13
-**Related:** [802.1x-credential-auth.md](./802.1x-credential-auth.md)
+**Status:** Complete  
+**Created:** 2026-01-13  
+**Updated:** 2026-01-14  
+**Related:** [10_EAP-TLS_Design.md](./10_EAP-TLS_Design.md)
+
+---
+
+> **Note:** This is a design document. For usage reference, see [01_WiFi_Tools.md](./01_WiFi_Tools.md).
 
 ---
 

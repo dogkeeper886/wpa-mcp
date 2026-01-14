@@ -1,8 +1,12 @@
-# 802.1X EAP-TLS Authentication
+# EAP-TLS Authentication Design
 
-**Status:** Proposed (Revision 2)  
+**Status:** Complete  
 **Created:** 2026-01-13  
-**Updated:** 2026-01-13
+**Updated:** 2026-01-14
+
+---
+
+> **Note:** This is a design document. For usage reference, see [01_WiFi_Tools.md](./01_WiFi_Tools.md).
 
 ---
 
