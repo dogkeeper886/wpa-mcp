@@ -525,4 +525,132 @@ export class WpaCli {
       ),
     };
   }
+
+  // ========================================
+  // Hotspot 2.0 (HS20) Methods
+  // ========================================
+
+  /**
+   * Add a new credential for HS20/Passpoint.
+   * Returns the credential ID assigned by wpa_supplicant.
+   */
+  async addCred(): Promise<number> {
+    const result = await this.run("add_cred");
+    const credId = parseInt(result, 10);
+
+    if (isNaN(credId)) {
+      throw new Error(`Failed to add credential: ${result}`);
+    }
+
+    return credId;
+  }
+
+  /**
+   * Set a credential parameter.
+   * @param credId - Credential ID from addCred()
+   * @param param - Parameter name (e.g., 'realm', 'domain', 'eap')
+   * @param value - Parameter value
+   */
+  async setCred(credId: number, param: string, value: string): Promise<void> {
+    const result = await this.run(`set_cred ${credId} ${param} ${value}`);
+    if (!result.includes("OK")) {
+      throw new Error(`Failed to set credential ${param}: ${result}`);
+    }
+  }
+
+  /**
+   * Remove a credential.
+   * @param credId - Credential ID to remove
+   */
+  async removeCred(credId: number): Promise<void> {
+    const result = await this.run(`remove_cred ${credId}`);
+    if (!result.includes("OK")) {
+      throw new Error(`Failed to remove credential: ${result}`);
+    }
+  }
+
+  /**
+   * Trigger interworking (ANQP) network selection.
+   * @param auto - If true, automatically connect to matching network
+   */
+  async interworkingSelect(auto: boolean = true): Promise<void> {
+    const command = auto ? "interworking_select auto" : "interworking_select";
+    const result = await this.run(command);
+    if (!result.includes("OK")) {
+      throw new Error(`Interworking select failed: ${result}`);
+    }
+  }
+
+  /**
+   * Connect to a Hotspot 2.0 (Passpoint) network using EAP-TLS credentials.
+   * Uses ANQP to discover and connect to matching networks.
+   *
+   * @param realm - Home realm for NAI matching (e.g., "corp.example.com")
+   * @param domain - Home domain for domain list matching (e.g., "example.com")
+   * @param identity - User identity (e.g., "user@example.com")
+   * @param clientCertPath - Path to client certificate file
+   * @param privateKeyPath - Path to private key file
+   * @param caCertPath - Path to CA certificate file (optional)
+   * @param privateKeyPassword - Password for encrypted private key (optional)
+   * @param priority - Selection priority when multiple networks match (optional)
+   */
+  async connectHs20(
+    realm: string,
+    domain: string,
+    identity: string,
+    clientCertPath: string,
+    privateKeyPath: string,
+    caCertPath?: string,
+    privateKeyPassword?: string,
+    priority?: number,
+  ): Promise<void> {
+    const credId = await this.addCred();
+
+    try {
+      // Set realm (quoted string - use single quotes to pass double quotes through shell)
+      await this.setCred(credId, "realm", `'"${realm}"'`);
+
+      // Set domain (quoted string)
+      await this.setCred(credId, "domain", `'"${domain}"'`);
+
+      // Set EAP method to TLS
+      await this.setCred(credId, "eap", "TLS");
+
+      // Set identity (quoted string)
+      await this.setCred(credId, "username", `'"${identity}"'`);
+
+      // Set client certificate (quoted path)
+      await this.setCred(credId, "client_cert", `'"${clientCertPath}"'`);
+
+      // Set private key (quoted path)
+      await this.setCred(credId, "private_key", `'"${privateKeyPath}"'`);
+
+      // Set CA certificate if provided (quoted path)
+      if (caCertPath) {
+        await this.setCred(credId, "ca_cert", `'"${caCertPath}"'`);
+      }
+
+      // Set private key password if provided (quoted string)
+      if (privateKeyPassword) {
+        await this.setCred(
+          credId,
+          "private_key_passwd",
+          `'"${privateKeyPassword}"'`,
+        );
+      }
+
+      // Set priority if provided
+      if (priority !== undefined) {
+        await this.setCred(credId, "priority", String(priority));
+      }
+
+      // Trigger ANQP discovery and auto-connect
+      await this.interworkingSelect(true);
+    } catch (error) {
+      // Clean up on failure (same pattern as connectTls)
+      await this.removeCred(credId).catch(() => {});
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`HS20 connection failed: ${message}`);
+    }
+  }
 }

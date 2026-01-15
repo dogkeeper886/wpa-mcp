@@ -894,6 +894,153 @@ export function registerWifiTools(
     },
   );
 
+  // wifi_hs20_connect - Connect to Hotspot 2.0 (Passpoint) network using EAP-TLS
+  server.tool(
+    "wifi_hs20_connect",
+    "Connect to a Hotspot 2.0 (Passpoint) network using EAP-TLS certificate authentication. " +
+      "HS20 uses ANQP to automatically discover and connect to compatible networks based on " +
+      "realm and domain matching. Requires stored credential from credential_store. " +
+      "If connection fails, use wifi_get_debug_logs with filter='eap' to diagnose.",
+    {
+      credential_id: z
+        .string()
+        .describe(
+          "Reference to stored credential (from credential_store). " +
+            "Contains client certificate, private key, and CA certificate for EAP-TLS.",
+        ),
+      realm: z
+        .string()
+        .describe(
+          "Home realm for NAI matching (e.g., 'corp.example.com'). " +
+            "Used to identify your home network provider.",
+        ),
+      domain: z
+        .string()
+        .describe(
+          "Home domain for domain list matching (e.g., 'example.com'). " +
+            "Used to verify the network is operated by your provider.",
+        ),
+      priority: z
+        .number()
+        .optional()
+        .describe(
+          "Selection priority when multiple HS20 networks match (default: 1). " +
+            "Higher values are preferred.",
+        ),
+      interface: z
+        .string()
+        .optional()
+        .describe("WiFi interface name (default: wlan0)"),
+    },
+    async ({ credential_id, realm, domain, priority, interface: iface }) => {
+      try {
+        // Load credential from store
+        const credential = await credentialStore.get(credential_id);
+        if (!credential) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  success: false,
+                  error: `Credential '${credential_id}' not found. Use credential_list to see available credentials.`,
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Get key password if stored
+        let keyPassword: string | undefined;
+        if (credential.metadata.has_key_password) {
+          keyPassword = await credentialStore.getKeyPassword(credential_id);
+        }
+
+        daemon?.markCommandStart();
+        const targetIface = iface || DEFAULT_INTERFACE;
+        const wpa = new WpaCli(targetIface);
+
+        // Connect using HS20 with ANQP discovery
+        await wpa.connectHs20(
+          realm,
+          domain,
+          credential.metadata.identity,
+          credential.paths.clientCert,
+          credential.paths.privateKey,
+          credential.paths.caCert,
+          keyPassword,
+          priority,
+        );
+
+        // Poll for connection completion (20 seconds - ANQP discovery takes longer)
+        const { reached, status } = await wpa.waitForState("COMPLETED", 20000);
+
+        if (reached && dhcpManager) {
+          // Connection successful, get IP address via DHCP
+          await dhcpManager.start(targetIface);
+          const ipAddress = await dhcpManager.waitForIp(10000);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    message: "Connected via HS20",
+                    credential_id: credential_id,
+                    realm: realm,
+                    domain: domain,
+                    status: { ...status, ipAddress },
+                    dhcp: ipAddress ? "obtained" : "timeout",
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: reached,
+                  message: reached
+                    ? "Connected via HS20"
+                    : "HS20 connection timeout (no matching network found or ANQP failed)",
+                  credential_id: credential_id,
+                  realm: realm,
+                  domain: domain,
+                  status: status,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
   // wifi_eap_diagnostics - Get EAP/802.1X diagnostic information
   server.tool(
     "wifi_eap_diagnostics",

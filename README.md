@@ -245,17 +245,29 @@ ip link show | grep -E "^[0-9]+: wl"
 
 #### 2. Disable NetworkManager for WiFi interface (if running)
 
+**Important:** If NetworkManager is managing your WiFi interface, it will interfere with wpa_supplicant connections made by this server. NetworkManager sees the connection but has no matching profile, causing it to disconnect immediately with:
+```
+wpa_supplicant: No network configuration found for the current AP
+wpa_supplicant: CTRL-EVENT-DISCONNECTED ... locally_generated=1
+```
+
 ```bash
 # Check if NetworkManager is managing your interface
 nmcli device status
 
-# If managed, tell NetworkManager to ignore it
+# If managed, tell NetworkManager to ignore it (temporary)
 sudo nmcli device set wlan0 managed no
 
-# Or permanently via config:
-# /etc/NetworkManager/conf.d/99-unmanaged.conf
-# [keyfile]
-# unmanaged-devices=interface-name:wlan0
+# Or permanently via config file (recommended):
+sudo tee /etc/NetworkManager/conf.d/99-unmanaged-wlan0.conf << 'EOF'
+[keyfile]
+unmanaged-devices=interface-name:wlan0
+EOF
+sudo systemctl restart NetworkManager
+
+# Verify it's unmanaged
+nmcli device status | grep wlan0
+# Should show: wlan0  wifi  unmanaged  --
 ```
 
 #### 3. Create wpa_supplicant config
