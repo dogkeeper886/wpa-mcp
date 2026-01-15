@@ -3,6 +3,7 @@ import { z } from "zod";
 import { WpaCli } from "../lib/wpa-cli.js";
 import { WpaDaemon, LogFilter } from "../lib/wpa-daemon.js";
 import { DhcpManager } from "../lib/dhcp-manager.js";
+import { WpaConfig } from "../lib/wpa-config.js";
 import { credentialStore } from "../lib/credential-store.js";
 import type {
   MacAddressConfig,
@@ -16,6 +17,7 @@ export function registerWifiTools(
   server: McpServer,
   daemon?: WpaDaemon,
   dhcpManager?: DhcpManager,
+  wpaConfig?: WpaConfig,
 ): void {
   // wifi_scan - Scan for available networks
   server.tool(
@@ -120,6 +122,14 @@ export function registerWifiTools(
       rand_addr_lifetime,
     }) => {
       try {
+        // Clear HS20 config if active (switching from HS20 to direct connection)
+        if (wpaConfig && (await wpaConfig.isHs20Active())) {
+          await wpaConfig.clearHs20Credentials();
+          if (daemon) {
+            await daemon.restart();
+          }
+        }
+
         daemon?.markCommandStart();
         const targetIface = iface || DEFAULT_INTERFACE;
         const wpa = new WpaCli(targetIface);
@@ -263,6 +273,14 @@ export function registerWifiTools(
       rand_addr_lifetime,
     }) => {
       try {
+        // Clear HS20 config if active (switching from HS20 to direct connection)
+        if (wpaConfig && (await wpaConfig.isHs20Active())) {
+          await wpaConfig.clearHs20Credentials();
+          if (daemon) {
+            await daemon.restart();
+          }
+        }
+
         daemon?.markCommandStart();
         const targetIface = iface || DEFAULT_INTERFACE;
         const wpa = new WpaCli(targetIface);
@@ -371,6 +389,13 @@ export function registerWifiTools(
 
         await wpa.disconnect();
 
+        // Clear HS20 config if active
+        let hs20Cleared = false;
+        if (wpaConfig && (await wpaConfig.isHs20Active())) {
+          await wpaConfig.clearHs20Credentials();
+          hs20Cleared = true;
+        }
+
         return {
           content: [
             {
@@ -380,6 +405,7 @@ export function registerWifiTools(
                 message: "Disconnected from WiFi",
                 dhcpReleased: true,
                 ipFlushed: true,
+                hs20Cleared,
               }),
             },
           ],
@@ -722,6 +748,14 @@ export function registerWifiTools(
       let resolvedKeyPassword: string | undefined = private_key_password;
 
       try {
+        // Clear HS20 config if active (switching from HS20 to direct connection)
+        if (wpaConfig && (await wpaConfig.isHs20Active())) {
+          await wpaConfig.clearHs20Credentials();
+          if (daemon) {
+            await daemon.restart();
+          }
+        }
+
         if (credential_id) {
           // Use stored credential
           const credential = await credentialStore.get(credential_id);
@@ -934,6 +968,22 @@ export function registerWifiTools(
     },
     async ({ credential_id, realm, domain, priority, interface: iface }) => {
       try {
+        // Require wpaConfig for config-based HS20
+        if (!wpaConfig) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  success: false,
+                  error: "WpaConfig not available. HS20 requires config-based connection.",
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
         // Load credential from store
         const credential = await credentialStore.get(credential_id);
         if (!credential) {
@@ -961,20 +1011,29 @@ export function registerWifiTools(
         const targetIface = iface || DEFAULT_INTERFACE;
         const wpa = new WpaCli(targetIface);
 
-        // Connect using HS20 with ANQP discovery
-        await wpa.connectHs20(
+        // Config-based HS20 connection:
+        // 1. Clear any existing HS20 credentials
+        await wpaConfig.clearHs20Credentials();
+
+        // 2. Add new credential to config
+        await wpaConfig.addHs20Credential({
           realm,
           domain,
-          credential.metadata.identity,
-          credential.paths.clientCert,
-          credential.paths.privateKey,
-          credential.paths.caCert,
+          identity: credential.metadata.identity,
+          clientCertPath: credential.paths.clientCert,
+          privateKeyPath: credential.paths.privateKey,
+          caCertPath: credential.paths.caCert,
           keyPassword,
           priority,
-        );
+        });
 
-        // Poll for connection completion (20 seconds - ANQP discovery takes longer)
-        const { reached, status } = await wpa.waitForState("COMPLETED", 20000);
+        // 3. Restart daemon to apply config (auto_interworking will trigger ANQP)
+        if (daemon) {
+          await daemon.restart();
+        }
+
+        // 4. Wait for auto-connection (30 seconds - ANQP discovery takes time)
+        const { reached, status } = await wpa.waitForState("COMPLETED", 30000);
 
         if (reached && dhcpManager) {
           // Connection successful, get IP address via DHCP
@@ -988,7 +1047,7 @@ export function registerWifiTools(
                 text: JSON.stringify(
                   {
                     success: true,
-                    message: "Connected via HS20",
+                    message: "Connected via HS20 (config-based)",
                     credential_id: credential_id,
                     realm: realm,
                     domain: domain,
@@ -1003,6 +1062,11 @@ export function registerWifiTools(
           };
         }
 
+        // Connection failed - clean up credential from config
+        if (!reached) {
+          await wpaConfig.removeHs20Credential(realm, domain);
+        }
+
         return {
           content: [
             {
@@ -1011,7 +1075,7 @@ export function registerWifiTools(
                 {
                   success: reached,
                   message: reached
-                    ? "Connected via HS20"
+                    ? "Connected via HS20 (config-based)"
                     : "HS20 connection timeout (no matching network found or ANQP failed)",
                   credential_id: credential_id,
                   realm: realm,
@@ -1025,6 +1089,10 @@ export function registerWifiTools(
           ],
         };
       } catch (error) {
+        // Clean up on error
+        if (wpaConfig) {
+          await wpaConfig.clearHs20Credentials().catch(() => {});
+        }
         return {
           content: [
             {

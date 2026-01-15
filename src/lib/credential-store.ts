@@ -121,6 +121,71 @@ async function validateKeyFile(path: string): Promise<void> {
 }
 
 /**
+ * Extract CN (Common Name) from certificate.
+ */
+async function extractCN(certPath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('openssl', ['x509', '-in', certPath, '-noout', '-subject', '-nameopt', 'RFC2253']);
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => { stdout += data; });
+    proc.stderr.on('data', (data) => { stderr += data; });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Failed to extract CN from certificate: ${stderr}`));
+        return;
+      }
+
+      const match = stdout.match(/CN=([^,\n]+)/);
+      if (match) {
+        resolve(match[1].trim());
+      } else {
+        reject(new Error('Certificate does not contain a CN (Common Name)'));
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to run openssl: ${err.message}`));
+    });
+  });
+}
+
+/**
+ * Generate credential ID from certificate SHA256 fingerprint.
+ */
+async function generateIdFromCert(certPath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('openssl', ['x509', '-in', certPath, '-noout', '-fingerprint', '-sha256']);
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => { stdout += data; });
+    proc.stderr.on('data', (data) => { stderr += data; });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Failed to get certificate fingerprint: ${stderr}`));
+        return;
+      }
+
+      const match = stdout.match(/=([A-F0-9:]+)/i);
+      if (match) {
+        const id = match[1].replace(/:/g, '').substring(0, 16).toLowerCase();
+        resolve(id);
+      } else {
+        reject(new Error('Failed to parse certificate fingerprint'));
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to run openssl: ${err.message}`));
+    });
+  });
+}
+
+/**
  * Parse certificate info using openssl.
  */
 async function parseCertInfo(certPath: string): Promise<CertInfo> {
@@ -270,6 +335,45 @@ export class CredentialStore {
 
     console.log('Credential stored successfully', { id, created: !existed });
     return { created: !existed, path: credDir };
+  }
+
+  /**
+   * Store a credential with auto-generated ID and identity.
+   * ID is derived from certificate fingerprint, identity from certificate CN.
+   */
+  async storeFromPaths(
+    clientCertPath: string,
+    privateKeyPath: string,
+    caCertPath?: string,
+    privateKeyPassword?: string,
+    description?: string
+  ): Promise<{ id: string; identity: string; created: boolean; path: string }> {
+    // Validate files first
+    console.log('Validating certificate files', { clientCertPath, privateKeyPath, caCertPath });
+    await validateCertFile(clientCertPath, 'client_cert');
+    await validateKeyFile(privateKeyPath);
+    if (caCertPath) {
+      await validateCertFile(caCertPath, 'ca_cert');
+    }
+
+    // Extract ID and identity from certificate
+    const id = await generateIdFromCert(clientCertPath);
+    const identity = await extractCN(clientCertPath);
+
+    console.log('Auto-generated credential info', { id, identity });
+
+    // Use existing store method
+    const result = await this.store(
+      id,
+      identity,
+      clientCertPath,
+      privateKeyPath,
+      caCertPath,
+      privateKeyPassword,
+      description
+    );
+
+    return { id, identity, created: result.created, path: result.path };
   }
 
   /**

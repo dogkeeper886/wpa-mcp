@@ -8,16 +8,24 @@ import { registerConnectivityTools } from "./tools/connectivity.js";
 import { registerCredentialTools } from "./tools/credentials.js";
 import { WpaDaemon } from "./lib/wpa-daemon.js";
 import { DhcpManager } from "./lib/dhcp-manager.js";
+import { WpaConfig } from "./lib/wpa-config.js";
 
 const app = express();
 app.use(express.json());
 
+// Config path used by both daemon and config manager
+const wpaConfigPath =
+  process.env.WPA_CONFIG_PATH || "/etc/wpa_supplicant/wpa_supplicant.conf";
+
 // Create wpa_supplicant daemon manager
 const wpaDaemon = new WpaDaemon(
   process.env.WIFI_INTERFACE || "wlan0",
-  process.env.WPA_CONFIG_PATH || "/etc/wpa_supplicant/wpa_supplicant.conf",
+  wpaConfigPath,
   parseInt(process.env.WPA_DEBUG_LEVEL || "2", 10),
 );
+
+// Create wpa_supplicant config manager (for HS20)
+const wpaConfig = new WpaConfig(wpaConfigPath);
 
 // Create DHCP manager
 const dhcpManager = new DhcpManager();
@@ -29,7 +37,7 @@ const mcpServer = new McpServer({
 });
 
 // Register all tools
-registerWifiTools(mcpServer, wpaDaemon, dhcpManager);
+registerWifiTools(mcpServer, wpaDaemon, dhcpManager, wpaConfig);
 registerBrowserTools(mcpServer);
 registerConnectivityTools(mcpServer);
 registerCredentialTools(mcpServer);
@@ -75,6 +83,13 @@ process.on("SIGINT", shutdown);
 const startServer = async () => {
   const PORT = process.env.PORT || 3000;
   const HOST = process.env.HOST || "0.0.0.0";
+
+  // Ensure HS20 settings in config before starting daemon
+  try {
+    await wpaConfig.ensureHs20Enabled();
+  } catch (error) {
+    console.error("Failed to enable HS20 in config:", error);
+  }
 
   // Start wpa_supplicant daemon
   try {

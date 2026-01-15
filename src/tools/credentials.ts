@@ -6,24 +6,17 @@ export function registerCredentialTools(server: McpServer): void {
   // credential_store - Create or update a stored credential
   server.tool(
     "credential_store",
-    "Store EAP-TLS certificates for later use with wifi_connect_tls. " +
-      "Upload certificates via SCP first, then reference file paths here. " +
-      "Files are validated with openssl before copying to the credential store.",
+    "Store EAP-TLS certificates for enterprise WiFi authentication. " +
+      "Workflow: (1) Upload cert files to MCP server, (2) Call this tool with file paths, " +
+      "(3) Use wifi_connect_tls with returned credential_id. " +
+      "ID is auto-generated from certificate fingerprint. Identity is auto-extracted from certificate CN.",
     {
-      id: z
-        .string()
-        .describe(
-          "Unique identifier for this credential (alphanumeric, dash, underscore, max 64 chars)"
-        ),
-      identity: z
-        .string()
-        .describe("Identity for EAP authentication (typically CN from client certificate)"),
-      client_cert_path: z.string().describe("Path to client certificate file on MCP server"),
-      private_key_path: z.string().describe("Path to private key file on MCP server"),
+      client_cert_path: z.string().describe("Absolute path to client certificate in PEM format"),
+      private_key_path: z.string().describe("Absolute path to private key in PEM format"),
       ca_cert_path: z
         .string()
         .optional()
-        .describe("Path to CA certificate file on MCP server"),
+        .describe("Absolute path to CA certificate in PEM format"),
       private_key_password: z
         .string()
         .optional()
@@ -34,8 +27,6 @@ export function registerCredentialTools(server: McpServer): void {
         .describe("Human-readable description of this credential"),
     },
     async ({
-      id,
-      identity,
       client_cert_path,
       private_key_path,
       ca_cert_path,
@@ -43,9 +34,7 @@ export function registerCredentialTools(server: McpServer): void {
       description,
     }) => {
       try {
-        const result = await credentialStore.store(
-          id,
-          identity,
+        const result = await credentialStore.storeFromPaths(
           client_cert_path,
           private_key_path,
           ca_cert_path,
@@ -60,13 +49,14 @@ export function registerCredentialTools(server: McpServer): void {
               text: JSON.stringify(
                 {
                   success: true,
-                  id,
+                  id: result.id,
+                  identity: result.identity,
                   created: result.created,
                   updated: !result.created,
                   path: result.path,
                   message: result.created
-                    ? `Credential '${id}' created successfully`
-                    : `Credential '${id}' updated successfully`,
+                    ? `Credential '${result.id}' created successfully`
+                    : `Credential '${result.id}' updated successfully`,
                 },
                 null,
                 2
