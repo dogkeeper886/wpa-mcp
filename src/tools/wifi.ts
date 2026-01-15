@@ -1055,6 +1055,8 @@ export function registerWifiTools(
         // 3. Restart daemon to apply config (auto_interworking will trigger ANQP)
         if (daemon) {
           await daemon.restart();
+          // Wait for daemon to initialize and start scanning
+          await new Promise((resolve) => setTimeout(resolve, 3000));
         }
 
         // 4. Wait for auto-connection (default 60 seconds - ANQP discovery can take 20-30s)
@@ -1084,6 +1086,7 @@ export function registerWifiTools(
                   {
                     success: true,
                     message: "Connected via HS20 (config-based)",
+                    interface: targetIface,
                     credential_id: credential_id,
                     realm: realm,
                     domain: domain,
@@ -1112,8 +1115,9 @@ export function registerWifiTools(
                 {
                   success: reached,
                   message: reached
-                    ? "Connected via HS20 (config-based)"
+                    ? "Connected via HS20 (config-based, no DHCP manager)"
                     : "HS20 connection timeout (no matching network found or ANQP failed)",
+                  interface: targetIface,
                   credential_id: credential_id,
                   realm: realm,
                   domain: domain,
