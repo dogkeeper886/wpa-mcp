@@ -978,12 +978,20 @@ export function registerWifiTools(
           "Selection priority when multiple HS20 networks match (default: 1). " +
             "Higher values are preferred.",
         ),
+      timeout: z
+        .number()
+        .optional()
+        .describe(
+          "Connection timeout in seconds (default: 60). " +
+            "ANQP discovery with many APs can take 20-30+ seconds. " +
+            "Increase for environments with many HS20 networks.",
+        ),
       interface: z
         .string()
         .optional()
         .describe("WiFi interface name (default: wlan0)"),
     },
-    async ({ credential_id, realm, domain, priority, interface: iface }) => {
+    async ({ credential_id, realm, domain, priority, timeout, interface: iface }) => {
       try {
         // Require wpaConfig for config-based HS20
         if (!wpaConfig) {
@@ -1049,11 +1057,22 @@ export function registerWifiTools(
           await daemon.restart();
         }
 
-        // 4. Wait for auto-connection (30 seconds - ANQP discovery takes time)
-        const { reached, status } = await wpa.waitForState("COMPLETED", 30000);
+        // 4. Wait for auto-connection (default 60 seconds - ANQP discovery can take 20-30s)
+        const timeoutMs = (timeout || 60) * 1000;
+        let { reached, status } = await wpa.waitForState("COMPLETED", timeoutMs);
 
+        // 5. Post-timeout status check - connection may have completed just after timeout
+        if (!reached) {
+          const finalStatus = await wpa.status();
+          if (finalStatus.wpaState === "COMPLETED") {
+            reached = true;
+            status = finalStatus;
+            console.log("HS20 connection completed after initial timeout", { status });
+          }
+        }
+
+        // 6. Run DHCP if connected (even on late success)
         if (reached && dhcpManager) {
-          // Connection successful, get IP address via DHCP
           await dhcpManager.start(targetIface);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
@@ -1070,6 +1089,7 @@ export function registerWifiTools(
                     domain: domain,
                     status: { ...status, ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
+                    timeout_seconds: timeout || 60,
                   },
                   null,
                   2,
@@ -1098,6 +1118,8 @@ export function registerWifiTools(
                   realm: realm,
                   domain: domain,
                   status: status,
+                  timeout_seconds: timeout || 60,
+                  hint: !reached ? "Try increasing timeout parameter for environments with many APs" : undefined,
                 },
                 null,
                 2,
