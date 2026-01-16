@@ -18,18 +18,31 @@ export class WpaCli {
     return stdout.trim();
   }
 
-  async scan(): Promise<Network[]> {
-    // Initiate scan
-    const scanResult = await this.run("scan");
-    if (!scanResult.includes("OK")) {
-      throw new Error(`Scan failed: ${scanResult}`);
+  async scan(timeoutMs: number = 10000): Promise<Network[]> {
+    // Check current state - if already scanning, just wait for results
+    const currentStatus = await this.status();
+    const isScanning = currentStatus.wpaState === "SCANNING";
+
+    if (!isScanning) {
+      // Initiate scan
+      const scanResult = await this.run("scan");
+      if (!scanResult.includes("OK")) {
+        throw new Error(`Scan failed: ${scanResult}`);
+      }
+
+      // Brief delay for state transition
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
-    // Wait for scan to complete
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // Poll for scan results instead of fixed wait
+    const { found, output } = await this.waitForScanResults(timeoutMs);
 
-    // Get results
-    const output = await this.run("scan_results");
+    if (!found) {
+      // Return empty array if no results found (not an error, just no networks)
+      return [];
+    }
+
+    // Parse results
     const lines = output.split("\n").slice(1); // Skip header
 
     return lines
@@ -44,6 +57,53 @@ export class WpaCli {
           ssid: parts[4] || "",
         };
       });
+  }
+
+  /**
+   * Scan for networks with retry logic.
+   * Useful when wpa_supplicant is in INACTIVE state where first scan may not execute.
+   *
+   * @param timeoutMs - Timeout per scan attempt (default: 10000ms)
+   * @param maxRetries - Number of retry attempts if first scan returns empty (default: 2)
+   * @param retryDelayMs - Delay between retries (default: 1000ms)
+   * @returns Array of discovered networks
+   */
+  async scanWithRetry(
+    timeoutMs: number = 10000,
+    maxRetries: number = 2,
+    retryDelayMs: number = 1000,
+  ): Promise<Network[]> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const networks = await this.scan(timeoutMs);
+
+        // If we got results, return them
+        if (networks.length > 0) {
+          return networks;
+        }
+
+        // Empty results - retry if we have attempts left
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        // Continue to next attempt
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+      }
+    }
+
+    // If we had an error on the last attempt, throw it
+    if (lastError) {
+      throw lastError;
+    }
+
+    // All attempts returned empty results
+    return [];
   }
 
   async connect(
@@ -316,6 +376,40 @@ export class WpaCli {
       reached: finalStatus.wpaState === targetState,
       status: finalStatus,
     };
+  }
+
+  /**
+   * Wait for scan results to become available.
+   * Polls scan_results until non-empty or timeout.
+   *
+   * @param timeoutMs - Maximum time to wait (default: 10000ms)
+   * @param pollIntervalMs - Time between polls (default: 500ms)
+   * @returns Object with found flag and raw scan_results output
+   */
+  async waitForScanResults(
+    timeoutMs: number = 10000,
+    pollIntervalMs: number = 500,
+  ): Promise<{ found: boolean; output: string }> {
+    const maxAttempts = Math.ceil(timeoutMs / pollIntervalMs);
+
+    for (let i = 0; i < maxAttempts; i++) {
+      const output = await this.run("scan_results");
+      const lines = output.split("\n").slice(1); // Skip header
+      const hasResults = lines.some((line) => line.trim().length > 0);
+
+      if (hasResults) {
+        return { found: true, output };
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    // Final check
+    const output = await this.run("scan_results");
+    const lines = output.split("\n").slice(1);
+    const hasResults = lines.some((line) => line.trim().length > 0);
+
+    return { found: hasResults, output };
   }
 
   async listNetworks(): Promise<SavedNetwork[]> {

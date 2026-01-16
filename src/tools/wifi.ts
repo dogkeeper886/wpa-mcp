@@ -28,12 +28,29 @@ export function registerWifiTools(
         .string()
         .optional()
         .describe("WiFi interface name (default: wlan0)"),
+      timeout: z
+        .number()
+        .optional()
+        .describe(
+          "Scan timeout in milliseconds (default: 10000). Increase for slow environments.",
+        ),
+      retry: z
+        .boolean()
+        .optional()
+        .describe(
+          "Enable retry logic for robust scanning (default: false). " +
+            "Useful when wpa_supplicant is in INACTIVE state where first scan may return empty.",
+        ),
     },
-    async ({ interface: iface }) => {
+    async ({ interface: iface, timeout, retry }) => {
       try {
         daemon?.markCommandStart();
         const wpa = new WpaCli(iface || DEFAULT_INTERFACE);
-        const networks = await wpa.scan();
+        const scanTimeout = timeout || 10000;
+
+        const networks = retry
+          ? await wpa.scanWithRetry(scanTimeout)
+          : await wpa.scan(scanTimeout);
 
         return {
           content: [
