@@ -94,6 +94,52 @@ The server can run wpa_supplicant as a managed subprocess (WpaDaemon) or use an 
 4. `waitForState('COMPLETED')` - polls status until connected
 5. DhcpManager runs `dhclient` to obtain IP address
 
+## Git Workflow
+
+### Feature Development Process
+
+1. **Create a feature branch** from main:
+   ```bash
+   git checkout main
+   git pull
+   git checkout -b feature/my-feature
+   ```
+
+2. **Make changes and commit**:
+   ```bash
+   git add <files>
+   git commit -m "Description of changes"
+   ```
+
+3. **Push and create PR**:
+   ```bash
+   git push -u origin feature/my-feature
+   gh pr create --title "Title" --body "Description"
+   ```
+
+4. **After PR is approved, merge and delete branch**:
+   ```bash
+   gh pr merge <number> --merge --delete-branch
+   ```
+
+5. **Update local main**:
+   ```bash
+   git checkout main
+   git pull
+   ```
+
+### Branch Naming Conventions
+
+- `feature/` - New features (e.g., `feature/bssid-support`)
+- `fix/` - Bug fixes (e.g., `fix/scan-timeout`)
+- `refactor/` - Code refactoring (e.g., `refactor/wpa-cli`)
+
+### Important
+
+- Always create feature branches for PRs - never commit directly to main
+- Delete branches after merge to keep the repository clean
+- Use `--delete-branch` flag with `gh pr merge` to auto-delete
+
 ## Code Review Guidelines
 
 ### Core Principles
