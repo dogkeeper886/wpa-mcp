@@ -128,6 +128,13 @@ export function registerWifiTools(
           "Seconds before rotating random MAC address (default: 60). " +
             "Only applies when mac_mode is random or persistent-random.",
         ),
+      bssid: z
+        .string()
+        .optional()
+        .describe(
+          "BSSID of specific access point to connect to (format: aa:bb:cc:dd:ee:ff). " +
+            "Use when multiple APs share the same SSID.",
+        ),
     },
     async ({
       ssid,
@@ -137,6 +144,7 @@ export function registerWifiTools(
       mac_address,
       preassoc_mac_mode,
       rand_addr_lifetime,
+      bssid,
     }) => {
       try {
         // Clear HS20 config if active (switching from HS20 to direct connection)
@@ -162,7 +170,7 @@ export function registerWifiTools(
           };
         }
 
-        await wpa.connect(ssid, password, macConfig);
+        await wpa.connect(ssid, password, macConfig, bssid);
 
         // Poll for connection completion (15 seconds)
         const { reached, status } = await wpa.waitForState("COMPLETED", 15000);
@@ -276,6 +284,13 @@ export function registerWifiTools(
           "Seconds before rotating random MAC address (default: 60). " +
             "Only applies when mac_mode is random or persistent-random.",
         ),
+      bssid: z
+        .string()
+        .optional()
+        .describe(
+          "BSSID of specific access point to connect to (format: aa:bb:cc:dd:ee:ff). " +
+            "Use when multiple APs share the same SSID.",
+        ),
     },
     async ({
       ssid,
@@ -288,6 +303,7 @@ export function registerWifiTools(
       mac_address,
       preassoc_mac_mode,
       rand_addr_lifetime,
+      bssid,
     }) => {
       try {
         // Clear HS20 config if active (switching from HS20 to direct connection)
@@ -320,6 +336,7 @@ export function registerWifiTools(
           eap_method || "PEAP",
           phase2 || "MSCHAPV2",
           macConfig,
+          bssid,
         );
 
         // Poll for connection completion (15 seconds)
@@ -742,6 +759,13 @@ export function registerWifiTools(
           "Seconds before rotating random MAC address (default: 60). " +
             "Only applies when mac_mode is random or persistent-random.",
         ),
+      bssid: z
+        .string()
+        .optional()
+        .describe(
+          "BSSID of specific access point to connect to (format: aa:bb:cc:dd:ee:ff). " +
+            "Use when multiple APs share the same SSID.",
+        ),
     },
     async ({
       ssid,
@@ -756,6 +780,7 @@ export function registerWifiTools(
       mac_address,
       preassoc_mac_mode,
       rand_addr_lifetime,
+      bssid,
     }) => {
       // Resolve certificate paths and identity
       let clientCertPath: string;
@@ -879,6 +904,7 @@ export function registerWifiTools(
           caCertPath,
           resolvedKeyPassword,
           macConfig,
+          bssid,
         );
 
         // Poll for connection completion (15 seconds)
