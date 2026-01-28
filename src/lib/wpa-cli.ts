@@ -110,6 +110,7 @@ export class WpaCli {
     ssid: string,
     psk?: string,
     macConfig?: MacAddressConfig,
+    bssid?: string,
   ): Promise<void> {
     // Add new network
     const networkIdStr = await this.run("add_network");
@@ -126,6 +127,16 @@ export class WpaCli {
       );
       if (!ssidResult.includes("OK")) {
         throw new Error(`Failed to set SSID: ${ssidResult}`);
+      }
+
+      // Set BSSID if specified (for connecting to specific AP)
+      if (bssid) {
+        const bssidResult = await this.run(
+          `set_network ${networkId} bssid ${bssid}`,
+        );
+        if (!bssidResult.includes("OK")) {
+          throw new Error(`Failed to set BSSID: ${bssidResult}`);
+        }
       }
 
       if (psk) {
@@ -179,6 +190,7 @@ export class WpaCli {
     eapMethod: string = "PEAP",
     phase2: string = "MSCHAPV2",
     macConfig?: MacAddressConfig,
+    bssid?: string,
   ): Promise<void> {
     // Add new network
     const networkIdStr = await this.run("add_network");
@@ -195,6 +207,16 @@ export class WpaCli {
       );
       if (!ssidResult.includes("OK")) {
         throw new Error(`Failed to set SSID: ${ssidResult}`);
+      }
+
+      // Set BSSID if specified (for connecting to specific AP)
+      if (bssid) {
+        const bssidResult = await this.run(
+          `set_network ${networkId} bssid ${bssid}`,
+        );
+        if (!bssidResult.includes("OK")) {
+          throw new Error(`Failed to set BSSID: ${bssidResult}`);
+        }
       }
 
       // Set key management to WPA-EAP
@@ -481,6 +503,7 @@ export class WpaCli {
     caCertPath?: string,
     privateKeyPassword?: string,
     macConfig?: MacAddressConfig,
+    bssid?: string,
   ): Promise<void> {
     const networkIdStr = await this.run("add_network");
     const networkId = parseInt(networkIdStr, 10);
@@ -496,6 +519,16 @@ export class WpaCli {
       );
       if (!ssidResult.includes("OK")) {
         throw new Error(`Failed to set SSID: ${ssidResult}`);
+      }
+
+      // Set BSSID if specified (for connecting to specific AP)
+      if (bssid) {
+        const bssidResult = await this.run(
+          `set_network ${networkId} bssid ${bssid}`,
+        );
+        if (!bssidResult.includes("OK")) {
+          throw new Error(`Failed to set BSSID: ${bssidResult}`);
+        }
       }
 
       // Set key management to WPA-EAP
