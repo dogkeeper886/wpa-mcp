@@ -89,7 +89,11 @@ export function registerWifiTools(
   // wifi_connect - Connect to a network
   server.tool(
     "wifi_connect",
-    "Connect to a WPA-PSK or open WiFi network. Supports MAC address randomization for privacy. For WPA2-Enterprise/802.1X networks (like corporate WiFi requiring username/password), use wifi_connect_eap instead. Returns connection status after 5 second wait.",
+    "Connect to a WPA-PSK, open, or OWE (Enhanced Open) WiFi network. " +
+      "Supports MAC address randomization for privacy. " +
+      "For OWE networks (encrypted open), omit password and set security_type='owe'. " +
+      "For WPA2-Enterprise/802.1X networks, use wifi_connect_eap instead. " +
+      "Returns connection status after 5 second wait.",
     {
       ssid: z.string().describe("Network SSID to connect to"),
       password: z
@@ -135,10 +139,21 @@ export function registerWifiTools(
           "BSSID of specific access point to connect to (format: aa:bb:cc:dd:ee:ff). " +
             "Use when multiple APs share the same SSID.",
         ),
+      security_type: z
+        .enum(["auto", "open", "owe"])
+        .optional()
+        .describe(
+          "Security type for networks without password: " +
+            "auto (default - uses open), " +
+            "open (traditional unencrypted), " +
+            "owe (OWE/Enhanced Open - encrypted without password). " +
+            "Ignored when password is provided.",
+        ),
     },
     async ({
       ssid,
       password,
+      security_type,
       interface: iface,
       mac_mode,
       mac_address,
@@ -170,7 +185,16 @@ export function registerWifiTools(
           };
         }
 
-        await wpa.connect(ssid, password, macConfig, bssid);
+        if (password) {
+          // WPA-PSK connection
+          await wpa.connect(ssid, password, macConfig, bssid);
+        } else if (security_type === "owe") {
+          // OWE (Enhanced Open) connection
+          await wpa.connectOwe(ssid, macConfig, bssid);
+        } else {
+          // Traditional open network
+          await wpa.connect(ssid, undefined, macConfig, bssid);
+        }
 
         // Poll for connection completion (15 seconds)
         const { reached, status } = await wpa.waitForState("COMPLETED", 15000);
