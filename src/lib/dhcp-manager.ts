@@ -7,6 +7,7 @@ const execAsync = promisify(exec);
 export class DhcpManager {
   private process: ChildProcess | null = null;
   private iface: string | null = null;
+  private dnsConfigured: boolean = false;
 
   async start(iface: string, macMode?: MacAddressMode): Promise<void> {
     // Kill any existing dhclient first
@@ -59,6 +60,9 @@ export class DhcpManager {
 
     console.log(`Stopping dhclient for ${this.iface}...`);
 
+    // Clear DNS configuration before releasing lease
+    await this.clearDns();
+
     // Kill managed process if we have one
     if (this.process) {
       this.process.kill('SIGTERM');
@@ -100,7 +104,14 @@ export class DhcpManager {
 
     for (let i = 0; i < maxAttempts; i++) {
       const ip = await this.getCurrentIp();
-      if (ip) return ip;
+      if (ip) {
+        // Configure DNS after IP is obtained
+        const dnsServer = await this.configureDns();
+        if (dnsServer) {
+          console.log(`DNS configured: ${dnsServer}`);
+        }
+        return ip;
+      }
       await new Promise((resolve) => setTimeout(resolve, pollInterval));
     }
 
@@ -127,5 +138,87 @@ export class DhcpManager {
 
   getInterface(): string | null {
     return this.iface;
+  }
+
+  /**
+   * Check if systemd-resolved is active on this system.
+   * Returns true if resolvectl should be used for DNS configuration.
+   */
+  private async isSystemdResolved(): Promise<boolean> {
+    try {
+      const { stdout } = await execAsync('systemctl is-active systemd-resolved');
+      return stdout.trim() === 'active';
+    } catch {
+      // systemctl failed or systemd-resolved is not active
+      return false;
+    }
+  }
+
+  /**
+   * Get the default gateway IP for the interface.
+   * This is typically used as the DNS server.
+   */
+  private async getDefaultGateway(): Promise<string | null> {
+    if (!this.iface) return null;
+
+    try {
+      const { stdout } = await execAsync(
+        `ip route show default dev ${this.iface} | grep -oP 'via \\K[\\d.]+'`
+      );
+      const gateway = stdout.trim();
+      return gateway || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Configure DNS for the interface using systemd-resolved.
+   * Uses the default gateway as the DNS server.
+   * Returns the DNS server IP on success, null on failure or if not applicable.
+   */
+  async configureDns(): Promise<string | null> {
+    if (!this.iface) return null;
+
+    // Only configure if systemd-resolved is active
+    const useResolvectl = await this.isSystemdResolved();
+    if (!useResolvectl) {
+      console.log('systemd-resolved not active, skipping DNS configuration');
+      return null;
+    }
+
+    // Get gateway IP to use as DNS server
+    const gateway = await this.getDefaultGateway();
+    if (!gateway) {
+      console.warn(`No default gateway found for ${this.iface}, cannot configure DNS`);
+      return null;
+    }
+
+    try {
+      await execAsync(`sudo resolvectl dns ${this.iface} ${gateway}`);
+      this.dnsConfigured = true;
+      console.log(`Configured DNS for ${this.iface}: ${gateway}`);
+      return gateway;
+    } catch (error) {
+      console.error(`Failed to configure DNS for ${this.iface}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Clear DNS configuration for the interface.
+   * Reverts systemd-resolved settings for this interface.
+   */
+  async clearDns(): Promise<void> {
+    if (!this.iface || !this.dnsConfigured) return;
+
+    try {
+      await execAsync(`sudo resolvectl revert ${this.iface}`);
+      this.dnsConfigured = false;
+      console.log(`Cleared DNS configuration for ${this.iface}`);
+    } catch (error) {
+      // May fail if interface is already down or resolvectl not available
+      console.error(`Failed to clear DNS for ${this.iface}:`, error);
+    }
   }
 }
