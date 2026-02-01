@@ -180,6 +180,11 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface, macConfig?.mode);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
+          // If DHCP timeout but IP exists now, still configure DNS
+          if (!ipAddress && status.ipAddress) {
+            await dhcpManager.configureDns();
+          }
+
           return {
             content: [
               {
@@ -188,7 +193,7 @@ export function registerWifiTools(
                   {
                     success: true,
                     message: `Connected to ${ssid}`,
-                    status: { ...status, ipAddress },
+                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
@@ -347,6 +352,11 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface, macConfig?.mode);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
+          // If DHCP timeout but IP exists now, still configure DNS
+          if (!ipAddress && status.ipAddress) {
+            await dhcpManager.configureDns();
+          }
+
           return {
             content: [
               {
@@ -355,7 +365,7 @@ export function registerWifiTools(
                   {
                     success: true,
                     message: `Connected to ${ssid} using EAP-${eap_method || "PEAP"}`,
-                    status: { ...status, ipAddress },
+                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
@@ -630,6 +640,11 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
+          // If DHCP timeout but IP exists now, still configure DNS
+          if (!ipAddress && status.ipAddress) {
+            await dhcpManager.configureDns();
+          }
+
           return {
             content: [
               {
@@ -638,7 +653,7 @@ export function registerWifiTools(
                   {
                     success: true,
                     message: "Reconnected to WiFi",
-                    status: { ...status, ipAddress },
+                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
@@ -915,6 +930,11 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface, macConfig?.mode);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
+          // If DHCP timeout but IP exists now, still configure DNS
+          if (!ipAddress && status.ipAddress) {
+            await dhcpManager.configureDns();
+          }
+
           return {
             content: [
               {
@@ -924,7 +944,7 @@ export function registerWifiTools(
                     success: true,
                     message: `Connected to ${ssid} using EAP-TLS`,
                     credential_id: credential_id || undefined,
-                    status: { ...status, ipAddress },
+                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
@@ -1131,6 +1151,11 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface, mac_mode as MacAddressMode | undefined);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
+          // If DHCP timeout but IP exists now, still configure DNS
+          if (!ipAddress && status.ipAddress) {
+            await dhcpManager.configureDns();
+          }
+
           return {
             content: [
               {
@@ -1143,7 +1168,7 @@ export function registerWifiTools(
                     realm: realm,
                     domain: domain,
                     mac_mode: mac_mode || undefined,
-                    status: { ...status, ipAddress },
+                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
