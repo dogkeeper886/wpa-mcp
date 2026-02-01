@@ -1008,8 +1008,46 @@ export function registerWifiTools(
         .string()
         .optional()
         .describe("WiFi interface name (default: wlan0)"),
+      mac_mode: z
+        .enum(["device", "random", "persistent-random", "specific"])
+        .optional()
+        .describe(
+          "MAC address mode: device (real MAC), random (new each connection), " +
+            "persistent-random (same random across reboots), specific (custom MAC)",
+        ),
+      mac_address: z
+        .string()
+        .optional()
+        .describe(
+          'Specific MAC address to use (required when mac_mode is "specific"). ' +
+            "Format: aa:bb:cc:dd:ee:ff",
+        ),
+      preassoc_mac_mode: z
+        .enum(["disabled", "random", "persistent-random"])
+        .optional()
+        .describe(
+          "MAC randomization during scanning: disabled (real MAC), random, " +
+            "or persistent-random",
+        ),
+      rand_addr_lifetime: z
+        .number()
+        .optional()
+        .describe(
+          "Seconds before rotating random MAC address (default: 60). " +
+            "Only applies when mac_mode is random or persistent-random.",
+        ),
     },
-    async ({ credential_id, realm, domain, priority, interface: iface }) => {
+    async ({
+      credential_id,
+      realm,
+      domain,
+      priority,
+      interface: iface,
+      mac_mode,
+      mac_address,
+      preassoc_mac_mode,
+      rand_addr_lifetime,
+    }) => {
       try {
         // Require wpaConfig for config-based HS20
         if (!wpaConfig) {
@@ -1055,10 +1093,20 @@ export function registerWifiTools(
         const wpa = new WpaCli(targetIface);
 
         // Config-based HS20 connection:
-        // 1. Clear any existing HS20 credentials
+        // 1. Clear any existing HS20 credentials (also clears MAC settings)
         await wpaConfig.clearHs20Credentials();
 
-        // 2. Add new credential to config
+        // 2. Apply MAC configuration if specified (before daemon restart)
+        if (mac_mode) {
+          await wpaConfig.setGlobalMacConfig({
+            macMode: mac_mode as MacAddressMode,
+            macAddress: mac_address,
+            preassocMacMode: preassoc_mac_mode as PreassocMacMode | undefined,
+            randAddrLifetime: rand_addr_lifetime,
+          });
+        }
+
+        // 3. Add new credential to config
         await wpaConfig.addHs20Credential({
           realm,
           domain,
@@ -1070,17 +1118,17 @@ export function registerWifiTools(
           priority,
         });
 
-        // 3. Restart daemon to apply config (auto_interworking will trigger ANQP)
+        // 4. Restart daemon to apply config (auto_interworking will trigger ANQP)
         if (daemon) {
           await daemon.restart();
         }
 
-        // 4. Wait for auto-connection (30 seconds - ANQP discovery takes time)
+        // 5. Wait for auto-connection (30 seconds - ANQP discovery takes time)
         const { reached, status } = await wpa.waitForState("COMPLETED", 30000);
 
         if (reached && dhcpManager) {
           // Connection successful, get IP address via DHCP
-          await dhcpManager.start(targetIface);
+          await dhcpManager.start(targetIface, mac_mode as MacAddressMode | undefined);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
           return {
@@ -1094,6 +1142,7 @@ export function registerWifiTools(
                     credential_id: credential_id,
                     realm: realm,
                     domain: domain,
+                    mac_mode: mac_mode || undefined,
                     status: { ...status, ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
@@ -1123,6 +1172,7 @@ export function registerWifiTools(
                   credential_id: credential_id,
                   realm: realm,
                   domain: domain,
+                  mac_mode: mac_mode || undefined,
                   status: status,
                 },
                 null,

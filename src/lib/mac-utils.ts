@@ -70,3 +70,69 @@ export function preassocModeToWpaValue(mode: PreassocMacMode): string {
       return '0';
   }
 }
+
+/**
+ * Result type for global MAC configuration values.
+ * Used when writing MAC settings to wpa_supplicant.conf.
+ */
+export interface GlobalMacConfig {
+  macAddr: string;           // 0=device, 1=random, 2=persistent, 3=specific
+  macValue?: string;         // Only set when macAddr='3' (specific)
+  preassocMacAddr?: string;  // 0=disabled, 1=random, 2=persistent
+  randAddrLifetime?: number; // Seconds before MAC rotation
+}
+
+/**
+ * Converts MacAddressMode to wpa_supplicant global config values.
+ *
+ * For global config, MAC settings use numeric values:
+ * - mac_addr=0: Use real device MAC
+ * - mac_addr=1: Random MAC for each connection
+ * - mac_addr=2: Persistent random MAC (same across reboots)
+ * - mac_addr=3: Specific MAC (requires mac_value=aa:bb:cc:dd:ee:ff)
+ *
+ * @param mode - MAC address mode
+ * @param address - Specific MAC address (required when mode is 'specific')
+ * @param preassocMode - MAC mode during scanning
+ * @param randAddrLifetime - Seconds before rotating random MAC
+ */
+export function macModeToGlobalWpaValue(
+  mode: MacAddressMode,
+  address?: string,
+  preassocMode?: PreassocMacMode,
+  randAddrLifetime?: number
+): GlobalMacConfig {
+  const result: GlobalMacConfig = { macAddr: '0' };
+
+  switch (mode) {
+    case 'device':
+      result.macAddr = '0';
+      break;
+    case 'random':
+      result.macAddr = '1';
+      break;
+    case 'persistent-random':
+      result.macAddr = '2';
+      break;
+    case 'specific':
+      if (!address) {
+        throw new Error('MAC address required when mode is "specific"');
+      }
+      if (!isValidMacAddress(address)) {
+        throw new Error(`Invalid MAC address format: ${address}. Expected format: aa:bb:cc:dd:ee:ff`);
+      }
+      result.macAddr = '3';
+      result.macValue = normalizeMacAddress(address);
+      break;
+  }
+
+  if (preassocMode) {
+    result.preassocMacAddr = preassocModeToWpaValue(preassocMode);
+  }
+
+  if (randAddrLifetime !== undefined) {
+    result.randAddrLifetime = randAddrLifetime;
+  }
+
+  return result;
+}
