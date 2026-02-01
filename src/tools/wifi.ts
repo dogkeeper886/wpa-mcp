@@ -180,9 +180,14 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface, macConfig?.mode);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
-          // If DHCP timeout but IP exists now, still configure DNS
-          if (!ipAddress && status.ipAddress) {
-            await dhcpManager.configureDns();
+          // If DHCP timeout, re-check current status for late-arriving IP
+          let finalIpAddress = ipAddress;
+          if (!ipAddress) {
+            const currentStatus = await wpa.status();
+            if (currentStatus.ipAddress) {
+              finalIpAddress = currentStatus.ipAddress;
+              await dhcpManager.configureDns();
+            }
           }
 
           return {
@@ -193,7 +198,7 @@ export function registerWifiTools(
                   {
                     success: true,
                     message: `Connected to ${ssid}`,
-                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
+                    status: { ...status, ipAddress: finalIpAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
@@ -352,9 +357,14 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface, macConfig?.mode);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
-          // If DHCP timeout but IP exists now, still configure DNS
-          if (!ipAddress && status.ipAddress) {
-            await dhcpManager.configureDns();
+          // If DHCP timeout, re-check current status for late-arriving IP
+          let finalIpAddress = ipAddress;
+          if (!ipAddress) {
+            const currentStatus = await wpa.status();
+            if (currentStatus.ipAddress) {
+              finalIpAddress = currentStatus.ipAddress;
+              await dhcpManager.configureDns();
+            }
           }
 
           return {
@@ -365,7 +375,7 @@ export function registerWifiTools(
                   {
                     success: true,
                     message: `Connected to ${ssid} using EAP-${eap_method || "PEAP"}`,
-                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
+                    status: { ...status, ipAddress: finalIpAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
@@ -640,9 +650,14 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
-          // If DHCP timeout but IP exists now, still configure DNS
-          if (!ipAddress && status.ipAddress) {
-            await dhcpManager.configureDns();
+          // If DHCP timeout, re-check current status for late-arriving IP
+          let finalIpAddress = ipAddress;
+          if (!ipAddress) {
+            const currentStatus = await wpa.status();
+            if (currentStatus.ipAddress) {
+              finalIpAddress = currentStatus.ipAddress;
+              await dhcpManager.configureDns();
+            }
           }
 
           return {
@@ -653,7 +668,7 @@ export function registerWifiTools(
                   {
                     success: true,
                     message: "Reconnected to WiFi",
-                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
+                    status: { ...status, ipAddress: finalIpAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
@@ -930,9 +945,14 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface, macConfig?.mode);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
-          // If DHCP timeout but IP exists now, still configure DNS
-          if (!ipAddress && status.ipAddress) {
-            await dhcpManager.configureDns();
+          // If DHCP timeout, re-check current status for late-arriving IP
+          let finalIpAddress = ipAddress;
+          if (!ipAddress) {
+            const currentStatus = await wpa.status();
+            if (currentStatus.ipAddress) {
+              finalIpAddress = currentStatus.ipAddress;
+              await dhcpManager.configureDns();
+            }
           }
 
           return {
@@ -944,7 +964,7 @@ export function registerWifiTools(
                     success: true,
                     message: `Connected to ${ssid} using EAP-TLS`,
                     credential_id: credential_id || undefined,
-                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
+                    status: { ...status, ipAddress: finalIpAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
@@ -1151,9 +1171,14 @@ export function registerWifiTools(
           await dhcpManager.start(targetIface, mac_mode as MacAddressMode | undefined);
           const ipAddress = await dhcpManager.waitForIp(10000);
 
-          // If DHCP timeout but IP exists now, still configure DNS
-          if (!ipAddress && status.ipAddress) {
-            await dhcpManager.configureDns();
+          // If DHCP timeout, re-check current status for late-arriving IP
+          let finalIpAddress = ipAddress;
+          if (!ipAddress) {
+            const currentStatus = await wpa.status();
+            if (currentStatus.ipAddress) {
+              finalIpAddress = currentStatus.ipAddress;
+              await dhcpManager.configureDns();
+            }
           }
 
           return {
@@ -1168,7 +1193,7 @@ export function registerWifiTools(
                     realm: realm,
                     domain: domain,
                     mac_mode: mac_mode || undefined,
-                    status: { ...status, ipAddress: ipAddress || status.ipAddress },
+                    status: { ...status, ipAddress: finalIpAddress || status.ipAddress },
                     dhcp: ipAddress ? "obtained" : "timeout",
                   },
                   null,
