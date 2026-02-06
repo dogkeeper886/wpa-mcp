@@ -230,6 +230,50 @@ claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
 
 ---
 
+## Docker (Network Namespace Isolation)
+
+Run wpa-mcp in a Docker container with a PCIe WiFi adapter fully isolated in
+the container's network namespace. WiFi routes, DHCP, and IP addresses stay
+inside the container and never touch the host routing table.
+
+### Quick Start
+
+```bash
+# 1. Build the image
+make docker-build
+
+# 2. Persistently unmanage the WiFi interface from NetworkManager
+sudo make nm-unmanage WIFI_INTERFACE=wlp6s0
+
+# 3. Start the container and move the WiFi phy into it
+sudo ./scripts/docker-run.sh wlp6s0
+
+# 4. Connect via MCP (same as non-Docker usage)
+claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
+```
+
+### How It Works
+
+The container uses Docker bridge networking for MCP client access (port 3000)
+and `iw phy set netns` to move the WiFi phy device into the container's
+namespace. The entrypoint script deletes the bridge default route so WiFi
+becomes the sole default when dhclient runs.
+
+See [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) for the full
+architecture and route trace, and [docs/20_Troubleshooting.md](docs/20_Troubleshooting.md)
+for Docker-specific troubleshooting.
+
+### Makefile Commands (Docker)
+
+| Command | Description |
+|---------|-------------|
+| `make docker-build` | Build Docker image |
+| `make test-integration` | Run Docker netns integration test (requires sudo + WiFi) |
+| `sudo make nm-unmanage` | Persistently unmanage WiFi interface from NetworkManager |
+| `sudo make nm-restore` | Restore NetworkManager management of WiFi interface |
+
+---
+
 ## Prerequisites
 
 ### wpa_supplicant Setup

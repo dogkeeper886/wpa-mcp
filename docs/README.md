@@ -1,8 +1,8 @@
 # wpa-mcp Documentation
 
 **Status:** Complete  
-**Version:** 1.0.0  
-**Updated:** 2026-01-14
+**Version:** 1.1.0  
+**Updated:** 2026-02-06
 
 ---
 
@@ -151,6 +151,11 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 | **Privacy** | | | |
 | | MAC Randomization | Per-connection MAC address control | Complete |
 | | Pre-assoc MAC | MAC randomization during scanning | Complete |
+| **Docker** | | | |
+| | Network Namespace Isolation | WiFi phy moved into container netns | Complete |
+| | Entrypoint Route Cleanup | Automatic bridge default route deletion | Complete |
+| | NM Unmanage Automation | Persistent NetworkManager unmanage via Makefile | Complete |
+| | Integration Test | Full lifecycle test (18/18 pass) | Complete |
 
 ---
 
@@ -172,6 +177,13 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 |---|----------|-------------|
 | 10 | [EAP-TLS Authentication](./10_EAP-TLS_Design.md) | 802.1X certificate authentication design |
 | 11 | [Credential Store](./11_Credential_Store_Design.md) | Certificate storage system design |
+| 30 | [Docker Dev Plan](./30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
+
+### Operations
+
+| # | Document | Description |
+|---|----------|-------------|
+| 20 | [Troubleshooting](./20_Troubleshooting.md) | Docker and DNS troubleshooting guide |
 
 ---
 
