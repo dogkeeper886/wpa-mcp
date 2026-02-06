@@ -73,6 +73,10 @@ ENV HOST=0.0.0.0
 
 EXPOSE 3000
 
+# Health check using Node's built-in fetch (no curl needed)
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)throw r.status}).catch(()=>process.exit(1))"
+
 USER node
 
 ENTRYPOINT ["./scripts/docker-entrypoint.sh"]
