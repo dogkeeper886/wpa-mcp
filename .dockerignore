@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.git/
+docs/
+tests/
+scripts/
+*.log
+*.pid
+coverage/
+.cursor/
