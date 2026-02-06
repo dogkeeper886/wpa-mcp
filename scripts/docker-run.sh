@@ -2,9 +2,12 @@
 #
 # docker-run.sh -- Start wpa-mcp in Docker with netns-isolated WiFi
 #
-# Moves a physical WiFi interface into the container's network namespace
+# Moves a physical WiFi phy device into the container's network namespace
 # so that all WiFi routes/IP stay inside the container and never touch
 # the host routing table.
+#
+# Uses "iw phy <phy> set netns <pid>" which works with all WiFi drivers
+# (including iwlwifi which blocks "ip link set netns").
 #
 # Usage:
 #   sudo ./scripts/docker-run.sh [WIFI_INTERFACE]
@@ -24,7 +27,7 @@ CONTAINER_NAME="wpa-mcp"
 # --- Preflight checks ---
 
 if [[ $EUID -ne 0 ]]; then
-  echo "Error: must run as root (need ip link set netns)"
+  echo "Error: must run as root (need iw phy set netns)"
   echo "Usage: sudo $0 [WIFI_INTERFACE]"
   exit 1
 fi
@@ -41,6 +44,21 @@ if ! command -v docker &>/dev/null; then
   exit 1
 fi
 
+if ! command -v iw &>/dev/null; then
+  echo "Error: iw not found (needed for phy netns move)"
+  exit 1
+fi
+
+# --- Resolve phy device from interface ---
+
+PHY=$(cat "/sys/class/net/${IFACE}/phy80211/name" 2>/dev/null || true)
+if [[ -z "$PHY" ]]; then
+  echo "Error: cannot resolve phy device for '$IFACE'"
+  echo "Is '$IFACE' a wireless interface?"
+  exit 1
+fi
+echo "Resolved $IFACE -> $PHY"
+
 # --- Unmanage from NetworkManager if present ---
 
 if command -v nmcli &>/dev/null; then
@@ -49,6 +67,10 @@ if command -v nmcli &>/dev/null; then
     nmcli device set "$IFACE" managed no 2>/dev/null || true
   fi
 fi
+
+# --- Bring interface down before moving ---
+
+ip link set "$IFACE" down 2>/dev/null || true
 
 # --- Stop any existing container ---
 
@@ -69,30 +91,49 @@ docker run --rm -d \
   -e "WIFI_INTERFACE=${IFACE}" \
   "$IMAGE"
 
-# --- Move WiFi interface into container netns ---
+# --- Move WiFi phy into container netns ---
 
 CONTAINER_PID=$(docker inspect --format '{{.State.Pid}}' "$CONTAINER_NAME")
 echo "Container PID: $CONTAINER_PID"
-echo "Moving $IFACE into container network namespace..."
-ip link set "$IFACE" netns "$CONTAINER_PID"
+echo "Moving $PHY into container network namespace..."
+iw phy "$PHY" set netns "$CONTAINER_PID"
+
+# The interface may get a different name inside the container.
+# Wait a moment then discover it.
+sleep 1
+CONTAINER_IFACE=$(docker exec "$CONTAINER_NAME" \
+  sh -c 'ls /sys/class/ieee80211/*/device/net/ 2>/dev/null | head -1' || true)
+
+if [[ -z "$CONTAINER_IFACE" ]]; then
+  echo "Warning: could not detect WiFi interface name inside container"
+  CONTAINER_IFACE="$IFACE"
+fi
+
+echo "WiFi interface inside container: $CONTAINER_IFACE"
+
+# If the name changed, update the env var (restart not needed, but inform)
+if [[ "$CONTAINER_IFACE" != "$IFACE" ]]; then
+  echo "Note: interface renamed from '$IFACE' to '$CONTAINER_IFACE' inside container"
+  echo "You may need to set WIFI_INTERFACE=$CONTAINER_IFACE"
+fi
 
 # --- Verify ---
 
 echo ""
 echo "=== Setup complete ==="
 echo ""
-echo "Interface '$IFACE' moved into container (PID $CONTAINER_PID)"
+echo "Phy '$PHY' moved into container (PID $CONTAINER_PID)"
 echo ""
 echo "Verify host (no $IFACE):"
 echo "  ip link show $IFACE          # should fail: does not exist"
 echo "  ip route                      # should have no $IFACE routes"
 echo ""
 echo "Verify container:"
-echo "  docker exec $CONTAINER_NAME ip link show $IFACE"
+echo "  docker exec $CONTAINER_NAME ip link show $CONTAINER_IFACE"
 echo "  docker exec $CONTAINER_NAME ip route"
 echo ""
 echo "MCP endpoint: http://localhost:${PORT}/mcp"
 echo "Health check: curl http://localhost:${PORT}/health"
 echo ""
-echo "To stop and return $IFACE to host:"
+echo "To stop and return phy to host:"
 echo "  docker rm -f $CONTAINER_NAME"
