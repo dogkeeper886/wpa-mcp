@@ -49,6 +49,16 @@ if ! command -v iw &>/dev/null; then
   exit 1
 fi
 
+# --- Check for host wpa_supplicant binding this interface ---
+
+if pgrep -a wpa_supplicant 2>/dev/null | grep -q -- "-i[[:space:]]*${IFACE}"; then
+  echo "Warning: host wpa_supplicant is bound to $IFACE"
+  echo "  This will conflict with the container's wpa_supplicant."
+  echo "  Stop it first:  sudo pkill -f 'wpa_supplicant.*-i.*${IFACE}'"
+  echo "  Or if managed by systemd:  sudo systemctl stop wpa_supplicant"
+  exit 1
+fi
+
 # --- Resolve phy device from interface ---
 
 PHY=$(cat "/sys/class/net/${IFACE}/phy80211/name" 2>/dev/null || true)
