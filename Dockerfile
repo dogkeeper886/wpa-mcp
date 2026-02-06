@@ -1,3 +1,19 @@
+# Stage 1: Build TypeScript
+FROM node:22 AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src/ ./src/
+RUN npm run build
+
+# Remove devDependencies — only production deps carry to runtime
+RUN npm prune --omit=dev
+
+# Stage 2: Runtime
 FROM node:22-slim
 
 # System dependencies for WiFi control
@@ -12,8 +28,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
   && rm -rf /var/lib/apt/lists/*
 
-# Allow node user to run privileged commands without password
-RUN echo 'node ALL=(ALL) NOPASSWD: ALL' \
+# Allow node user to run only the specific privileged commands needed
+# for WiFi control, DHCP, and network configuration
+RUN printf 'node ALL=(ALL) NOPASSWD: \\\n\
+  /usr/sbin/wpa_supplicant, \\\n\
+  /usr/sbin/wpa_cli, \\\n\
+  /usr/sbin/dhclient, \\\n\
+  /usr/sbin/ip, \\\n\
+  /usr/bin/pkill, \\\n\
+  /usr/bin/pgrep, \\\n\
+  /usr/bin/mv, \\\n\
+  /usr/bin/chmod, \\\n\
+  /usr/bin/cat, \\\n\
+  /usr/bin/kill\n' \
   > /etc/sudoers.d/node && chmod 0440 /etc/sudoers.d/node
 
 # Create wpa_supplicant config directory
@@ -28,17 +55,14 @@ RUN mkdir -p /var/run/wpa_supplicant
 
 WORKDIR /app
 
-# Install all dependencies (need devDeps for tsc build)
-COPY package.json package-lock.json ./
-RUN npm ci
+# Copy built application and production dependencies from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
 
-# Copy source and build
-COPY tsconfig.json ./
-COPY src/ ./src/
-RUN npm run build
-
-# Remove devDependencies after build
-RUN npm prune --omit=dev
+# Copy entrypoint script
+COPY scripts/docker-entrypoint.sh ./scripts/
+RUN chmod +x ./scripts/docker-entrypoint.sh
 
 # Default environment
 ENV WIFI_INTERFACE=wlan0
@@ -49,6 +73,10 @@ ENV HOST=0.0.0.0
 
 EXPOSE 3000
 
+# Health check using Node's built-in fetch (no curl needed)
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)throw r.status}).catch(()=>process.exit(1))"
+
 USER node
 
-CMD ["node", "dist/index.js"]
+ENTRYPOINT ["./scripts/docker-entrypoint.sh"]

@@ -278,6 +278,8 @@ if [[ "$CONTAINER_IFACE" != "$IFACE" ]]; then
 fi
 
 # Give the server time to start (wpa_supplicant starts on first request)
+# The entrypoint script deletes the Docker bridge default route on startup
+# so dhclient adds WiFi as the sole default when it connects.
 log "Waiting for wpa-mcp server..."
 if ! wait_for_health; then
   fail "Server health check did not pass within 30s"
@@ -286,11 +288,6 @@ if ! wait_for_health; then
   exit 1
 fi
 pass "Server health check passed"
-
-# Remove Docker bridge default route so WiFi becomes the only default.
-# Must happen after server is ready (Docker may restore routes during init).
-log "Removing Docker bridge default route from container..."
-docker exec "$CONTAINER_NAME" sudo ip route del default 2>/dev/null || true
 
 # ======================================================================
 # PHASE 2: Verify isolation (pre-connect)
