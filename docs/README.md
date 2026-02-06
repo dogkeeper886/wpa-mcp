@@ -161,6 +161,7 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 | # | Document | Description |
 |---|----------|-------------|
 | 00 | [Architecture](./00_Architecture.md) | System architecture and component overview |
+| 05 | [Structure and Flow](./05_Structure_and_Flow.md) | Repository structure, layers, and end-to-end request flow |
 | 01 | [WiFi Tools](./01_WiFi_Tools.md) | WiFi connection and management tools |
 | 02 | [Connectivity Tools](./02_Connectivity_Tools.md) | Network diagnostics and testing |
 | 03 | [Browser Tools](./03_Browser_Tools.md) | Browser automation for captive portals |
