@@ -1,7 +1,7 @@
 # wpa-mcp Makefile
 # Local process management for wpa-mcp server
 
-.PHONY: start stop restart logs status clean help upload-certs docker-build test-integration
+.PHONY: start stop restart logs status clean help upload-certs docker-build test-integration nm-unmanage nm-restore
 
 # Load .env if exists
 -include .env
@@ -20,6 +20,8 @@ help:
 	@echo "  upload-certs      - Upload EAP-TLS certificates to remote host"
 	@echo "  docker-build      - Build Docker image"
 	@echo "  test-integration  - Run Docker netns integration test (requires sudo + WiFi)"
+	@echo "  nm-unmanage       - Persistently unmanage WiFi interface from NetworkManager"
+	@echo "  nm-restore        - Restore NetworkManager management of WiFi interface"
 	@echo ""
 	@echo "For build/install, use npm directly:"
 	@echo "  npm install      - Install dependencies"
@@ -116,3 +118,47 @@ test-integration:
 	WIFI_INTERFACE="$(WIFI_INTERFACE)" TEST_SSID="$(TEST_SSID)" TEST_PSK="$(TEST_PSK)" \
 		WPA_MCP_IMAGE="wpa-mcp:test" \
 		./tests/integration/test-docker-netns.sh
+
+# NetworkManager: persistently unmanage WiFi interface
+# Creates a drop-in config so NM ignores the interface across reboots.
+# Usage: sudo make nm-unmanage WIFI_INTERFACE=wlp6s0
+WIFI_INTERFACE ?= wlan0
+NM_CONF_DIR := /etc/NetworkManager/conf.d
+NM_CONF_FILE := $(NM_CONF_DIR)/99-unmanaged-$(WIFI_INTERFACE).conf
+
+nm-unmanage:
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo "Error: must run as root"; \
+		echo "Usage: sudo make nm-unmanage WIFI_INTERFACE=$(WIFI_INTERFACE)"; \
+		exit 1; \
+	fi
+	@if ! command -v nmcli >/dev/null 2>&1; then \
+		echo "Error: NetworkManager (nmcli) not found"; \
+		exit 1; \
+	fi
+	@mkdir -p $(NM_CONF_DIR)
+	@printf '[keyfile]\nunmanaged-devices=interface-name:$(WIFI_INTERFACE)\n' \
+		> $(NM_CONF_FILE)
+	@echo "Created $(NM_CONF_FILE)"
+	@systemctl restart NetworkManager
+	@echo "NetworkManager restarted. $(WIFI_INTERFACE) is now persistently unmanaged."
+	@echo "Verify: nmcli device status | grep $(WIFI_INTERFACE)"
+
+# NetworkManager: restore management of WiFi interface
+# Removes the drop-in config and restarts NM.
+# Usage: sudo make nm-restore WIFI_INTERFACE=wlp6s0
+nm-restore:
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo "Error: must run as root"; \
+		echo "Usage: sudo make nm-restore WIFI_INTERFACE=$(WIFI_INTERFACE)"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(NM_CONF_FILE)" ]; then \
+		echo "Nothing to restore: $(NM_CONF_FILE) does not exist"; \
+		exit 0; \
+	fi
+	@rm -f $(NM_CONF_FILE)
+	@echo "Removed $(NM_CONF_FILE)"
+	@systemctl restart NetworkManager
+	@echo "NetworkManager restarted. $(WIFI_INTERFACE) is managed again."
+	@echo "Verify: nmcli device status | grep $(WIFI_INTERFACE)"
