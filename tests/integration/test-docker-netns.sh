@@ -287,6 +287,11 @@ if ! wait_for_health; then
 fi
 pass "Server health check passed"
 
+# Remove Docker bridge default route so WiFi becomes the only default.
+# Must happen after server is ready (Docker may restore routes during init).
+log "Removing Docker bridge default route from container..."
+docker exec "$CONTAINER_NAME" sudo ip route del default 2>/dev/null || true
+
 # ======================================================================
 # PHASE 2: Verify isolation (pre-connect)
 # ======================================================================
@@ -400,16 +405,17 @@ assert_not_contains \
 CONTAINER_ROUTES=$(docker exec "$CONTAINER_NAME" ip route show 2>/dev/null || echo "")
 log "Container routes: $CONTAINER_ROUTES"
 
-# Container SHOULD have a route involving the WiFi interface
-# dhclient may add a default route, or just a subnet route (if Docker bridge
-# already provides a default). Either is acceptable for isolation.
-if echo "$CONTAINER_ROUTES" | grep -q "default.*dev ${IFACE}"; then
-  pass "Container has default route via $IFACE"
-elif echo "$CONTAINER_ROUTES" | grep -q "dev ${IFACE}"; then
-  pass "Container has subnet route via $IFACE (default may be via Docker bridge)"
-else
-  fail "Container has no route via $IFACE"
-fi
+# Container should NOT have a default route via Docker bridge
+assert_not_contains \
+  "Container has no Docker bridge default route" \
+  "$CONTAINER_ROUTES" \
+  "default.*dev eth0"
+
+# Container SHOULD have default route via WiFi (dhclient adds it since no other default exists)
+assert_contains \
+  "Container has default route via $IFACE" \
+  "$CONTAINER_ROUTES" \
+  "default.*dev ${IFACE}"
 
 # Container should have an IP on the WiFi interface
 CONTAINER_ADDR=$(docker exec "$CONTAINER_NAME" ip addr show "$IFACE" 2>/dev/null || echo "")
@@ -418,30 +424,14 @@ assert_contains \
   "$CONTAINER_ADDR" \
   "inet "
 
-# Container can ping the internet via WiFi
-# If no default route via wlan, add one before pinging
+# Container can ping the internet via WiFi (default route is WiFi)
 log "Testing internet connectivity from container..."
-if ! echo "$CONTAINER_ROUTES" | grep -q "default.*dev ${IFACE}"; then
-  # Extract gateway from DHCP subnet (e.g. 192.168.4.0/24 -> 192.168.4.1)
-  WIFI_SUBNET_GW=$(echo "$CONTAINER_ROUTES" | grep "dev ${IFACE}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.' | head -1)
-  if [[ -n "$WIFI_SUBNET_GW" ]]; then
-    GW="${WIFI_SUBNET_GW}1"
-    log "Adding default route via $GW dev $IFACE for ping test"
-    docker exec "$CONTAINER_NAME" sudo ip route add default via "$GW" dev "$IFACE" metric 50 2>/dev/null || true
-  fi
-fi
-
 if docker exec "$CONTAINER_NAME" ping -c 2 -W 5 -I "$IFACE" 8.8.8.8 &>/dev/null; then
   pass "Container can ping 8.8.8.8 via $IFACE"
 else
-  # Try without -I (use whatever default route)
-  if docker exec "$CONTAINER_NAME" ping -c 2 -W 5 8.8.8.8 &>/dev/null; then
-    pass "Container can ping 8.8.8.8 (via default route)"
-  else
-    fail "Container cannot ping 8.8.8.8"
-    log "Container routes after fix attempt:"
-    docker exec "$CONTAINER_NAME" ip route show 2>&1 || true
-  fi
+  fail "Container cannot ping 8.8.8.8 via $IFACE"
+  log "Container routes:"
+  docker exec "$CONTAINER_NAME" ip route show 2>&1 || true
 fi
 
 # ======================================================================
