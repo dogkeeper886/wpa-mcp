@@ -4,7 +4,10 @@ dist/
 .git/
 docs/
 tests/
-scripts/
+# Keep scripts/docker-entrypoint.sh available to COPY
+scripts/docker-run.sh
+scripts/example-portal.js
+scripts/gen-tls-call.sh
 *.log
 *.pid
 coverage/

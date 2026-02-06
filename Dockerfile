@@ -28,8 +28,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
   && rm -rf /var/lib/apt/lists/*
 
-# Allow node user to run privileged commands without password
-RUN echo 'node ALL=(ALL) NOPASSWD: ALL' \
+# Allow node user to run only the specific privileged commands needed
+# for WiFi control, DHCP, and network configuration
+RUN printf 'node ALL=(ALL) NOPASSWD: \\\n\
+  /usr/sbin/wpa_supplicant, \\\n\
+  /usr/sbin/wpa_cli, \\\n\
+  /usr/sbin/dhclient, \\\n\
+  /usr/sbin/ip, \\\n\
+  /usr/bin/pkill, \\\n\
+  /usr/bin/pgrep, \\\n\
+  /usr/bin/mv, \\\n\
+  /usr/bin/chmod, \\\n\
+  /usr/bin/cat, \\\n\
+  /usr/bin/kill\n' \
   > /etc/sudoers.d/node && chmod 0440 /etc/sudoers.d/node
 
 # Create wpa_supplicant config directory
