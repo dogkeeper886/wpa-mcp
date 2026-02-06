@@ -35,117 +35,159 @@ With `--network host`, the container shares the host's network namespace. Every 
 
 ---
 
-## 2. The correct approach: move wlan0 into container's netns
+## 2. The correct approach: move the phy into container's netns
 
-Linux lets you move a **physical** network interface into another network namespace. The interface disappears from the host and only exists inside the container. All IP, routes, DHCP stay inside.
+Linux lets you move a **wireless phy device** into another network namespace using
+`iw phy`. The WiFi interface disappears from the host and only exists inside the
+container. All IP, routes, DHCP stay inside.
+
+**Important:** `ip link set <iface> netns` does NOT work with most WiFi drivers
+(e.g. iwlwifi returns "The interface netns is immutable"). You must use
+`iw phy <phyN> set netns <pid>` instead, which moves the underlying phy device.
 
 ```
   ┌──────────────────────────────────────┐     ┌──────────────────────────────────────┐
   │  HOST network namespace               │     │  CONTAINER network namespace           │
-  │                                        │     │  (Docker default bridge or none)       │
+  │                                        │     │  (Docker bridge, default removed)      │
   │  eth0: 10.0.0.50                       │     │                                        │
-  │                                        │     │  wlan0: 192.168.1.42                   │
-  │  ip route:                             │     │                                        │
-  │    default via 10.0.0.1 dev eth0       │     │  ip route:                             │
-  │    (no wlan0 — it's gone from here)    │     │    default via 192.168.1.1 dev wlan0   │
-  │                                        │     │    (only WiFi routes, fully isolated)   │
-  │  Host routing: UNAFFECTED              │     │                                        │
+  │                                        │     │  eth0: 172.17.0.2  (bridge, no default)│
+  │  ip route:                             │     │  wlan0: 192.168.1.42                   │
+  │    default via 10.0.0.1 dev eth0       │     │                                        │
+  │    172.17.0.0/16 dev docker0           │     │  ip route:                             │
+  │    (no wlan0 — phy moved out)          │     │    default via 192.168.1.1 dev wlan0   │
+  │                                        │     │    172.17.0.0/16 dev eth0 (MCP only)   │
+  │  Host routing: UNAFFECTED              │     │    192.168.1.0/24 dev wlan0            │
   └──────────────────────────────────────┘     └──────────────────────────────────────┘
-                                                           │
-                                                   wpa_supplicant
-                                                   wpa_cli
-                                                   dhclient
-                                                   wpa-mcp (port 3000)
+       ▲                                                │
+       │ host:3000 → container:3000                     │
+       │ (via Docker bridge subnet)                     │
+  MCP Client                                    wpa_supplicant + wpa_cli
+                                                dhclient + wpa-mcp server
 ```
 
-The kernel driver for the PCIe adapter still runs on the host. But the **network interface** (`wlan0`) only exists in the container's namespace. All WiFi traffic, DHCP leases, and routes are invisible to the host.
+The kernel driver for the PCIe adapter still runs on the host. But the **phy and its
+interface** only exist in the container's namespace. All WiFi traffic, DHCP leases,
+and routes are invisible to the host.
 
 ---
 
-## 3. How to move wlan0 into a container
+## 3. How to set up
 
-### Step 1: Start container (with its own netns, NOT --network host)
+### Prerequisites on the host
+
+```bash
+# 1. Find your WiFi interface and its phy
+ip link show | grep -E "^[0-9]+: wl"
+# e.g.  3: wlp6s0: ...
+
+cat /sys/class/net/wlp6s0/phy80211/name
+# e.g.  phy0
+
+# 2. Tell NetworkManager to ignore it (if NM is running)
+sudo nmcli device set wlp6s0 managed no
+
+# 3. Bring interface down
+sudo ip link set wlp6s0 down
+```
+
+### Step 1: Start container (Docker bridge for MCP, own netns for WiFi)
 
 ```bash
 docker run --rm -d \
   --name wpa-mcp \
-  --network none \
   --cap-add NET_ADMIN \
   --cap-add NET_RAW \
-  -e WIFI_INTERFACE=wlan0 \
+  -p 3000:3000 \
+  -e WIFI_INTERFACE=wlp6s0 \
   wpa-mcp
 ```
 
-`--network none` gives the container its own empty network namespace. No bridge, no veth — just `lo`.
+Docker bridge gives the container a subnet route (`172.17.0.0/16 dev eth0`) and
+a default route. Port 3000 is forwarded so the MCP client can reach the server.
 
 ### Step 2: Get the container's PID
 
 ```bash
 CONTAINER_PID=$(docker inspect --format '{{.State.Pid}}' wpa-mcp)
-echo "Container PID: $CONTAINER_PID"
 ```
 
-### Step 3: Move wlan0 from host into container's netns
+### Step 3: Move phy into container's netns
 
 ```bash
-# wlan0 disappears from host after this
-sudo ip link set wlan0 netns $CONTAINER_PID
+# Move the phy device (NOT the interface) — works with all WiFi drivers
+sudo iw phy phy0 set netns $CONTAINER_PID
 ```
 
-### Step 4: Verify — host no longer has wlan0
+The WiFi interface disappears from the host and reappears inside the container
+(it may keep the same name or get renamed).
+
+### Step 4: Remove Docker bridge default route
 
 ```bash
-# Host: wlan0 is gone
-$ ip link show wlan0
-Device "wlan0" does not exist.
+# Wait for server to be ready
+curl -sf http://localhost:3000/health
+
+# Delete bridge default so dhclient adds WiFi as the only default
+docker exec wpa-mcp sudo ip route del default
+```
+
+Without this step, dhclient sees the existing bridge default and only adds a
+subnet route for WiFi. Deleting it first ensures WiFi becomes the sole default.
+
+### Step 5: Verify — host is clean, container has WiFi
+
+```bash
+# Host: interface gone, routes untouched
+$ ip link show wlp6s0
+Device "wlp6s0" does not exist.
 
 $ ip route
 default via 10.0.0.1 dev eth0 proto static metric 100
-10.0.0.0/24 dev eth0 proto kernel scope link src 10.0.0.50
-# No wlan0 routes. Clean.
-```
+172.17.0.0/16 dev docker0 ...
+# No wlp6s0 routes.
 
-### Step 5: Verify — container has wlan0
-
-```bash
-$ docker exec wpa-mcp ip link show wlan0
-4: wlan0: <BROADCAST,MULTICAST> mtu 1500 state DOWN
-    link/ether aa:bb:cc:dd:ee:ff brd ff:ff:ff:ff:ff:ff
+# Container: WiFi interface present, no default yet (until connect)
+$ docker exec wpa-mcp ip link show wlp6s0
+3: wlp6s0: <BROADCAST,MULTICAST> mtu 1500 state DOWN ...
 
 $ docker exec wpa-mcp ip route
-# (empty or just lo — no routes until WiFi connects)
+172.17.0.0/16 dev eth0 proto kernel scope link src 172.17.0.2
+# Bridge subnet only, no default.
 ```
 
-### Step 6: Container connects to WiFi (via MCP or manually)
-
-Inside the container, wpa-mcp does its normal flow:
+### Step 6: Connect to WiFi via MCP
 
 ```bash
-# Inside container:
-$ ip link set wlan0 up
-$ wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
-$ wpa_cli -i wlan0 status
-wpa_state=INACTIVE
+# Scan
+curl -s -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"wifi_scan","arguments":{}}}'
 
-# After wifi_connect via MCP:
-$ wpa_cli -i wlan0 status
-wpa_state=COMPLETED
-ip_address=192.168.1.42
-ssid=CoffeeShop
-
-$ ip route
-default via 192.168.1.1 dev wlan0 proto dhcp metric 600
-192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.42
+# Connect
+curl -s -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"wifi_connect",
+                 "arguments":{"ssid":"MyNetwork","password":"secret"}}}'
 ```
 
-### Step 7: Verify host is still clean
+### Step 7: Verify — WiFi is the only default, host still clean
 
 ```bash
-# Host:
+# Container: WiFi is sole default route
+$ docker exec wpa-mcp ip route
+default via 192.168.4.1 dev wlp6s0                          ← WiFi default
+172.17.0.0/16 dev eth0 proto kernel scope link src 172.17.0.2  ← MCP subnet
+192.168.4.0/24 dev wlp6s0 proto kernel scope link src 192.168.4.130
+
+# Host: unchanged
 $ ip route
 default via 10.0.0.1 dev eth0 proto static metric 100
-10.0.0.0/24 dev eth0 proto kernel scope link src 10.0.0.50
-# No wlan0. No WiFi routes. Host unaffected.
+172.17.0.0/16 dev docker0 ...
+# No wlp6s0. No WiFi routes.
 ```
 
 ---
@@ -153,186 +195,142 @@ default via 10.0.0.1 dev eth0 proto static metric 100
 ## 4. Full flow diagram
 
 ```
-  MCP Client           Container (own netns)              Container's wlan0
-  (Claude)              --network none                     (moved from host)
+  MCP Client           Container (own netns)             Container's wlp6s0
+  (Claude)              Docker bridge + WiFi              (phy moved from host)
        │                       │                                  │
        │  POST /mcp            │                                  │
        │  wifi_connect(…)      │                                  │
        │──────────────────────►│                                  │
-       │                       │  ip link set wlan0 up            │
-       │                       │  wpa_supplicant -i wlan0         │
+       │  (via bridge subnet)  │                                  │
+       │                       │  ip link set wlp6s0 up           │
+       │                       │  wpa_supplicant -i wlp6s0        │
        │                       │  wpa_cli add/set/select_network  │
        │                       │─────────────────────────────────►│ associates
        │                       │  wpa_cli status → COMPLETED      │
        │                       │◄─────────────────────────────────│
-       │                       │  dhclient wlan0                  │
-       │                       │─────────────────────────────────►│ IP: 192.168.1.42
-       │                       │                                  │ route: default via
-       │                       │                                  │   192.168.1.1
+       │                       │  dhclient wlp6s0                 │
+       │                       │─────────────────────────────────►│ IP: 192.168.4.130
+       │                       │                                  │ default via
+       │                       │                                  │   192.168.4.1
        │                       │                                  │
-       │                       │  (all routes inside container    │
-       │                       │   namespace — host untouched)    │
+       │                       │  Container routes:               │
+       │                       │    default via 192.168.4.1       │
+       │                       │      dev wlp6s0 (WiFi only)     │
+       │                       │    172.17.0.0/16 dev eth0        │
+       │                       │      (bridge subnet, MCP only)   │
        │                       │                                  │
-       │  ◄────────────────────│  { success, ip: 192.168.1.42 }  │
+       │  ◄────────────────────│  { success, ip: 192.168.4.130 } │
        │                       │                                  │
 
   HOST routing table: unchanged. Only eth0 default route.
+  WiFi traffic: contained entirely inside container netns.
+  MCP traffic: Docker bridge subnet (172.17.0.x).
 ```
 
 ---
 
-## 5. Route trace comparison
-
-### --network host (broken)
+## 5. Route trace
 
 ```
-  EVENT                    HOST ip route                              ISOLATED?
-  ─────                    ──────────                                 ─────────
-  before connect           default via 10.0.0.1 dev eth0             -
-  after dhclient wlan0     default via 10.0.0.1 dev eth0 metric 100  NO
-                           default via 192.168.1.1 dev wlan0 m 600   ← leaked
-  after disconnect         default via 10.0.0.1 dev eth0             -
-```
+  EVENT                  HOST ip route              CONTAINER ip route         ISOLATED?
+  ─────                  ──────────                 ──────────────────         ─────────
+  container starts       default via … dev eth0     default via 172.17.0.1     -
+                         172.17.0.0/16 docker0        dev eth0 (bridge)
+                                                    172.17.0.0/16 dev eth0
 
-### --network none + ip link set netns (correct)
+  phy moved in           (unchanged)                172.17.0.0/16 dev eth0    YES
+                                                    (wlp6s0 appears, DOWN)
 
-```
-  EVENT                    HOST ip route                              ISOLATED?
-  ─────                    ──────────                                 ─────────
-  before connect           default via 10.0.0.1 dev eth0             -
-  after dhclient wlan0     default via 10.0.0.1 dev eth0             YES
-                           (wlan0 route only in container netns)
-  after disconnect         default via 10.0.0.1 dev eth0             YES
+  bridge default         (unchanged)                172.17.0.0/16 dev eth0    YES
+  deleted                                           (no default route)
 
-  CONTAINER ip route:
-  before connect           (empty)
-  after dhclient wlan0     default via 192.168.1.1 dev wlan0         contained
-  after disconnect         (empty)
+  wifi_connect +         (unchanged)                default via 192.168.4.1   YES
+  dhclient                                            dev wlp6s0 (WiFi)
+                                                    172.17.0.0/16 dev eth0
+                                                    192.168.4.0/24 dev wlp6s0
+
+  wifi_disconnect        (unchanged)                172.17.0.0/16 dev eth0    YES
+                                                    (WiFi routes removed)
+
+  container stops        default via … dev eth0     (gone)                    YES
+                         (phy returns to host)
 ```
 
 ---
 
-## 6. MCP client connectivity
+## 6. Why `ip link set netns` fails (and `iw phy` works)
 
-With `--network none`, the container has no bridge or veth to the host. The MCP client can't reach port 3000. Two solutions:
-
-### Option A: Add a veth pair for MCP traffic only
-
-```bash
-# Create veth pair
-sudo ip link add veth-host type veth peer name veth-container
-
-# Move one end into the container
-sudo ip link set veth-container netns $CONTAINER_PID
-
-# Assign IPs
-sudo ip addr add 172.30.0.1/30 dev veth-host
-sudo ip link set veth-host up
-
-docker exec wpa-mcp ip addr add 172.30.0.2/30 dev veth-container
-docker exec wpa-mcp ip link set veth-container up
-
-# MCP client connects to http://172.30.0.1:3000/mcp
-# But port 3000 is bound inside the container on 172.30.0.2
-# So the MCP client uses: http://172.30.0.2:3000/mcp
-```
-
-MCP traffic goes over the veth. WiFi traffic goes over wlan0. Completely separate paths.
-
-### Option B: Use Docker bridge (simpler)
+Many WiFi drivers (notably **iwlwifi** for Intel adapters) set the interface's
+netns as immutable:
 
 ```bash
-docker run --rm -d \
-  --name wpa-mcp \
-  --cap-add NET_ADMIN \
-  --cap-add NET_RAW \
-  -p 3000:3000 \
-  -e WIFI_INTERFACE=wlan0 \
-  wpa-mcp
-
-# Then move wlan0 in
-CONTAINER_PID=$(docker inspect --format '{{.State.Pid}}' wpa-mcp)
-sudo ip link set wlan0 netns $CONTAINER_PID
+$ sudo ip link set wlp6s0 netns $PID
+Error: The interface netns is immutable.
 ```
 
-Docker's default bridge handles MCP traffic (port 3000 forwarded). wlan0 is isolated in the container's netns. WiFi routes don't leak because the bridge is a separate interface.
+The fix is to move the **phy device**, not the interface:
 
+```bash
+# Find the phy name
+$ cat /sys/class/net/wlp6s0/phy80211/name
+phy0
+
+# Move the phy (interface follows automatically)
+$ sudo iw phy phy0 set netns $PID
 ```
-  ┌───────────────────────────────┐     ┌────────────────────────────────┐
-  │  HOST                          │     │  CONTAINER                      │
-  │                                │     │                                 │
-  │  eth0: 10.0.0.50              │     │  eth0: 172.17.0.2  (bridge)    │
-  │  docker0: 172.17.0.1          │     │  wlan0: 192.168.1.42 (WiFi)   │
-  │                                │     │                                 │
-  │  ip route:                     │     │  ip route:                      │
-  │    default via 10.0.0.1 eth0   │────►│    default via 192.168.1.1     │
-  │    172.17.0.0/16 dev docker0   │     │      dev wlan0 (WiFi traffic)  │
-  │                                │     │    172.17.0.0/16 dev eth0      │
-  │  No wlan0. No WiFi routes.    │     │      (MCP traffic to host)      │
-  └───────────────────────────────┘     └────────────────────────────────┘
-       ▲                                         ▲
-       │ host:3000 forwarded                     │ wlan0 (WiFi, isolated)
-       │ to container:3000                       │
-  MCP Client                              WiFi network (CoffeeShop)
+
+This works because `iw phy set netns` operates at the wireless subsystem level,
+bypassing the network interface layer restriction.
+
+---
+
+## 7. Returning the phy to the host (cleanup)
+
+When the container stops, the phy and its interface automatically return to the
+host's default network namespace:
+
+```bash
+# Stop container
+docker rm -f wpa-mcp
+
+# Wait a moment, then verify
+$ ip link show wlp6s0
+3: wlp6s0: <BROADCAST,MULTICAST> mtu 1500 state DOWN ...
 ```
 
 ---
 
-## 7. Returning wlan0 to the host (cleanup)
+## 8. Helper script
 
-When the container stops or you're done:
+See `scripts/docker-run.sh` for a complete script that:
+1. Resolves the phy from the interface name
+2. Sets NetworkManager to unmanaged
+3. Starts the container with bridge network + port forwarding
+4. Moves the phy into the container
+5. Waits for the server, then deletes the bridge default route
+
+Usage:
 
 ```bash
-# From inside the container (before stopping):
-docker exec wpa-mcp ip link set wlan0 down
-
-# Or after the container exits, the interface automatically
-# returns to the host's default network namespace.
-
-# Verify on host:
-$ ip link show wlan0
-4: wlan0: <BROADCAST,MULTICAST> mtu 1500 state DOWN
+sudo ./scripts/docker-run.sh wlp6s0
 ```
-
-When a container is removed, any interfaces that were moved into its namespace return to the host automatically.
 
 ---
 
-## 8. Example: full script
+## 9. Integration test
+
+See `tests/integration/test-docker-netns.sh` for a 5-phase test:
+
+1. **Setup** — record baseline routes, build image, start container, move phy
+2. **Pre-connect isolation** — verify interface gone from host, routes unchanged
+3. **WiFi connect via MCP** — scan, connect, verify IP assigned
+4. **Post-connect isolation** — host routes unchanged, WiFi is sole default in container, ping works
+5. **Disconnect + cleanup** — disconnect, stop container, verify phy returns, routes restored
+
+Run:
 
 ```bash
-#!/bin/bash
-set -e
-
-IFACE=${1:-wlan0}
-
-# 1. Ensure interface exists on host
-ip link show "$IFACE" > /dev/null 2>&1 || { echo "$IFACE not found"; exit 1; }
-
-# 2. Make sure NM isn't managing it
-sudo nmcli device set "$IFACE" managed no 2>/dev/null || true
-
-# 3. Start container (bridge network for MCP, own netns for WiFi)
-docker run --rm -d \
-  --name wpa-mcp \
-  --cap-add NET_ADMIN \
-  --cap-add NET_RAW \
-  -p 3000:3000 \
-  -e WIFI_INTERFACE="$IFACE" \
-  -v /etc/wpa_supplicant:/etc/wpa_supplicant:ro \
-  wpa-mcp
-
-# 4. Move WiFi interface into container
-CONTAINER_PID=$(docker inspect --format '{{.State.Pid}}' wpa-mcp)
-sudo ip link set "$IFACE" netns "$CONTAINER_PID"
-
-echo "wlan0 moved into container (PID $CONTAINER_PID)"
-echo "Host routing: unaffected"
-echo "MCP endpoint: http://localhost:3000/mcp"
-echo ""
-echo "Verify:"
-echo "  Host:      ip route  (no wlan0)"
-echo "  Container: docker exec wpa-mcp ip route"
+sudo make test-integration TEST_SSID="MyNetwork" TEST_PSK="password" WIFI_INTERFACE=wlp6s0
 ```
 
 ---
