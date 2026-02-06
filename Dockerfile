@@ -1,3 +1,19 @@
+# Stage 1: Build TypeScript
+FROM node:22 AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src/ ./src/
+RUN npm run build
+
+# Remove devDependencies — only production deps carry to runtime
+RUN npm prune --omit=dev
+
+# Stage 2: Runtime
 FROM node:22-slim
 
 # System dependencies for WiFi control
@@ -28,17 +44,10 @@ RUN mkdir -p /var/run/wpa_supplicant
 
 WORKDIR /app
 
-# Install all dependencies (need devDeps for tsc build)
-COPY package.json package-lock.json ./
-RUN npm ci
-
-# Copy source and build
-COPY tsconfig.json ./
-COPY src/ ./src/
-RUN npm run build
-
-# Remove devDependencies after build
-RUN npm prune --omit=dev
+# Copy built application and production dependencies from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
 
 # Copy entrypoint script
 COPY scripts/docker-entrypoint.sh ./scripts/
