@@ -40,6 +40,10 @@ RUN npm run build
 # Remove devDependencies after build
 RUN npm prune --omit=dev
 
+# Copy entrypoint script
+COPY scripts/docker-entrypoint.sh ./scripts/
+RUN chmod +x ./scripts/docker-entrypoint.sh
+
 # Default environment
 ENV WIFI_INTERFACE=wlan0
 ENV WPA_CONFIG_PATH=/etc/wpa_supplicant/wpa_supplicant.conf
@@ -51,4 +55,4 @@ EXPOSE 3000
 
 USER node
 
-CMD ["node", "dist/index.js"]
+ENTRYPOINT ["./scripts/docker-entrypoint.sh"]

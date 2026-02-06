@@ -117,9 +117,9 @@ if [[ "$CONTAINER_IFACE" != "$IFACE" ]]; then
   echo "You may need to set WIFI_INTERFACE=$CONTAINER_IFACE"
 fi
 
-# --- Remove Docker bridge default route ---
-# WiFi's dhclient will add the only default route when it connects.
-# Must wait until container is fully initialized before deleting.
+# --- Wait for server to be ready ---
+# The entrypoint script deletes the Docker bridge default route on
+# startup so dhclient adds WiFi as the sole default when it connects.
 
 echo "Waiting for server to start..."
 for i in $(seq 1 30); do
@@ -128,9 +128,6 @@ for i in $(seq 1 30); do
   fi
   sleep 1
 done
-
-echo "Removing Docker bridge default route from container..."
-docker exec "$CONTAINER_NAME" sudo ip route del default 2>/dev/null || true
 
 # --- Verify ---
 
