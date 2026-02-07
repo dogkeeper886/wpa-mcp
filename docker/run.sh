@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# docker-run.sh -- Start wpa-mcp in Docker with netns-isolated WiFi
+# run.sh -- Start wpa-mcp in Docker with netns-isolated WiFi
 #
 # Moves a physical WiFi phy device into the container's network namespace
 # so that all WiFi routes/IP stay inside the container and never touch
@@ -10,18 +10,29 @@
 # (including iwlwifi which blocks "ip link set netns").
 #
 # Usage:
-#   sudo ./scripts/docker-run.sh [WIFI_INTERFACE]
+#   sudo ./docker/run.sh [WIFI_INTERFACE]
 #
-# Environment:
+# Environment (can be set in .env at project root):
 #   WIFI_INTERFACE   WiFi interface name (default: wlan0, or first arg)
 #   WPA_MCP_IMAGE    Docker image name  (default: wpa-mcp:latest)
-#   WPA_MCP_PORT     Host port to forward (default: 3000)
+#   PORT             Host port to forward (default: 3000)
+#   WPA_DEBUG_LEVEL  Debug verbosity 1-3 (default: 2)
 #
 set -euo pipefail
 
+# Source .env from project root if it exists
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+  set -a
+  source "$PROJECT_ROOT/.env"
+  set +a
+fi
+
 IFACE="${1:-${WIFI_INTERFACE:-wlan0}}"
 IMAGE="${WPA_MCP_IMAGE:-wpa-mcp:latest}"
-PORT="${WPA_MCP_PORT:-3000}"
+HOST_PORT="${PORT:-3000}"
+DEBUG_LEVEL="${WPA_DEBUG_LEVEL:-2}"
 CONTAINER_NAME="wpa-mcp"
 
 # --- Preflight checks ---
@@ -97,8 +108,10 @@ docker run --rm -d \
   --name "$CONTAINER_NAME" \
   --cap-add NET_ADMIN \
   --cap-add NET_RAW \
-  -p "${PORT}:3000" \
+  -p "${HOST_PORT}:3000" \
   -e "WIFI_INTERFACE=${IFACE}" \
+  -e "WPA_DEBUG_LEVEL=${DEBUG_LEVEL}" \
+  -e "PORT=3000" \
   "$IMAGE"
 
 # --- Move WiFi phy into container netns ---
@@ -133,7 +146,7 @@ fi
 
 echo "Waiting for server to start..."
 for i in $(seq 1 30); do
-  if curl -sf "http://localhost:${PORT}/health" &>/dev/null; then
+  if curl -sf "http://localhost:${HOST_PORT}/health" &>/dev/null; then
     break
   fi
   sleep 1
@@ -154,8 +167,8 @@ echo "Verify container:"
 echo "  docker exec $CONTAINER_NAME ip link show $CONTAINER_IFACE"
 echo "  docker exec $CONTAINER_NAME ip route"
 echo ""
-echo "MCP endpoint: http://localhost:${PORT}/mcp"
-echo "Health check: curl http://localhost:${PORT}/health"
+echo "MCP endpoint: http://localhost:${HOST_PORT}/mcp"
+echo "Health check: curl http://localhost:${HOST_PORT}/health"
 echo ""
 echo "To stop and return phy to host:"
 echo "  docker rm -f $CONTAINER_NAME"

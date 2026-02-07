@@ -61,7 +61,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
 # Copy entrypoint script
-COPY scripts/docker-entrypoint.sh ./scripts/
+COPY docker/entrypoint.sh ./scripts/docker-entrypoint.sh
 RUN chmod +x ./scripts/docker-entrypoint.sh
 
 # Default environment
