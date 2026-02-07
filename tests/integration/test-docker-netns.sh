@@ -229,7 +229,7 @@ if [[ "$SKIP_BUILD" != "1" ]]; then
   log "Building Docker image '$IMAGE'..."
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-  docker build -t "$IMAGE" "$REPO_ROOT"
+  docker build -t "$IMAGE" -f "$REPO_ROOT/docker/Dockerfile" "$REPO_ROOT"
 else
   log "Skipping build (SKIP_BUILD=1)"
 fi

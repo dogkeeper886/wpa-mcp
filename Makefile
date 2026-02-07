@@ -1,7 +1,7 @@
 # wpa-mcp Makefile
 # Local process management for wpa-mcp server
 
-.PHONY: start stop restart logs status clean help upload-certs docker-build test-integration nm-unmanage nm-restore
+.PHONY: start stop restart logs status clean help upload-certs nm-unmanage nm-restore
 
 # Load .env if exists
 -include .env
@@ -18,8 +18,6 @@ help:
 	@echo "  status       - Check if server is running"
 	@echo "  clean        - Remove dist/"
 	@echo "  upload-certs      - Upload EAP-TLS certificates to remote host"
-	@echo "  docker-build      - Build Docker image"
-	@echo "  test-integration  - Run Docker netns integration test (requires sudo + WiFi)"
 	@echo "  nm-unmanage       - Persistently unmanage WiFi interface from NetworkManager"
 	@echo "  nm-restore        - Restore NetworkManager management of WiFi interface"
 	@echo ""
@@ -31,6 +29,9 @@ help:
 	@echo "Certificate upload (configure in .env or pass as args):"
 	@echo "  make upload-certs CERT_REMOTE_HOST=user@host \\"
 	@echo "       CERT_CLIENT=./client.crt CERT_KEY=./client.key CERT_CA=./ca.crt"
+	@echo ""
+	@echo "For Docker deployment, see docker/Makefile:"
+	@echo "  cd docker && make help"
 
 start:
 	@echo "Starting server..."
@@ -99,25 +100,6 @@ upload-certs:
 	@if [ -n "$(CERT_CA)" ] && [ -f "$(CERT_CA)" ]; then \
 		echo "  ca_cert_path: $(CERT_REMOTE_DIR)/ca.crt"; \
 	fi
-
-# Docker image build
-# Usage: make docker-build [WPA_MCP_IMAGE=wpa-mcp:latest]
-WPA_MCP_IMAGE ?= wpa-mcp:latest
-docker-build:
-	docker build -t $(WPA_MCP_IMAGE) .
-
-# Integration test: Docker + netns WiFi isolation
-# Requires: sudo, real WiFi interface, Docker
-# Usage: sudo make test-integration TEST_SSID="MyNetwork" TEST_PSK="password" [WIFI_INTERFACE=wlan0]
-test-integration:
-	@if [ -z "$(TEST_SSID)" ]; then \
-		echo "Error: TEST_SSID is required"; \
-		echo "Usage: sudo make test-integration TEST_SSID=\"MyNetwork\" TEST_PSK=\"password\""; \
-		exit 1; \
-	fi
-	WIFI_INTERFACE="$(WIFI_INTERFACE)" TEST_SSID="$(TEST_SSID)" TEST_PSK="$(TEST_PSK)" \
-		WPA_MCP_IMAGE="wpa-mcp:test" \
-		./tests/integration/test-docker-netns.sh
 
 # NetworkManager: persistently unmanage WiFi interface
 # Creates a drop-in config so NM ignores the interface across reboots.
