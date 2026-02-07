@@ -1,320 +1,110 @@
 # wpa-mcp
 
-**Status:** Complete
-**Created:** 2024
-
----
-
-## Goal
-
-MCP (Model Context Protocol) Server for WiFi control via wpa_supplicant. This server runs on a Linux host and allows Claude/MCP clients to connect/disconnect WiFi networks, scan for available networks, debug connection issues, check connectivity, and automate captive portal logins via Playwright scripts.
-
----
-
-## User Flow
-
-Users interact with WiFi networks through natural language conversations with Claude. Claude translates requests into MCP tool calls.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              USER FLOW                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-    ┌─────────┐
-    │  User   │
-    └────┬────┘
-         │ "Connect to CoffeeShop WiFi"
-         ▼
-    ┌─────────────────────────────────┐
-    │           Claude                │
-    │  (Claude Code/Claude Desktop)   │
-    └───────────────┬─────────────────┘
-                    │
-                    ▼
-         ┌─────────────────────┐
-         │  What type of WiFi? │
-         └──────────┬──────────┘
-                    │
-    ┌───────────────┼───────────────┐
-    │               │               │
-    ▼               ▼               ▼
-┌───────┐     ┌───────────┐    ┌────────────┐
-│ Open  │     │  WPA-PSK  │    │ WPA2-EAP   │
-│Network│     │ (Password)│    │(Enterprise)│
-└───┬───┘     └─────┬─────┘    └──────┬─────┘
-    │               │                 │
-    ▼               ▼                 ▼
-┌─────────────────────────────────────────────┐
-│              wifi_connect /                 │
-│              wifi_connect_eap               │
-└──────────────────────┬──────────────────────┘
-                       │
-                       ▼
-              ┌────────────────┐
-              │   Connected?   │
-              └───────┬────────┘
-                      │
-         ┌────────────┴────────────┐
-         │                         │
-         ▼                         ▼
-    ┌─────────┐              ┌───────────┐
-    │   Yes   │              │    No     │
-    └────┬────┘              └─────┬─────┘
-         │                         │
-         ▼                         ▼
-┌─────────────────┐      ┌─────────────────────┐
-│ Check Internet  │      │ Debug with logs     │
-│ network_check_  │      │ wifi_get_debug_logs │
-│ internet        │      │ wifi_eap_diagnostics│
-└────────┬────────┘      └─────────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Captive Portal? │
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    │         │
-    ▼         ▼
-┌──────┐  ┌─────────────────────┐
-│  No  │  │ Yes - Run Playwright│
-│      │  │ browser_run_script  │
-└──┬───┘  └──────────┬──────────┘
-   │                 │
-   └────────┬────────┘
-            │
-            ▼
-    ┌───────────────┐
-    │   Online!     │
-    └───────────────┘
-```
+MCP (Model Context Protocol) server for WiFi control via wpa_supplicant. Enables Claude and other MCP clients to scan, connect, disconnect, debug, and automate WiFi networks on Linux -- including WPA-PSK, WPA2-Enterprise, EAP-TLS, captive portal handling, and MAC randomization.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              ARCHITECTURE                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-                    ┌─────────────────────────────────┐
-                    │         MCP Client              │
-                    │  (Claude Desktop / Claude Code) │
-                    └───────────────┬─────────────────┘
-                                    │ HTTP POST /mcp
-                                    ▼
-                    ┌─────────────────────────────────┐
-                    │      Express + MCP Server       │
-                    │        (src/index.ts)           │
-                    └───────────────┬─────────────────┘
-                                    │
-        ┌───────────────────────────┼───────────────────────────┐
-        │                           │                           │
-        ▼                           ▼                           ▼
-┌───────────────────┐     ┌───────────────────┐     ┌───────────────────┐
-│   WiFi Tools      │     │  Browser Tools    │     │ Connectivity Tools│
-│  (src/tools/      │     │  (src/tools/      │     │  (src/tools/      │
-│   wifi.ts)        │     │   browser.ts)     │     │   connectivity.ts)│
-└─────────┬─────────┘     └─────────┬─────────┘     └─────────┬─────────┘
-          │                         │                         │
-          ▼                         ▼                         ▼
-┌───────────────────┐     ┌───────────────────┐     ┌───────────────────┐
-│  wpa-cli.ts       │     │ playwright-       │     │  network-check.ts │
-│  wpa-daemon.ts    │     │  runner.ts        │     │  (ping, DNS, HTTP)│
-│  dhcp-manager.ts  │     └───────────────────┘     └───────────────────┘
-│  mac-utils.ts     │
-└─────────┬─────────┘
-          │
-          ▼
-┌───────────────────┐
-│  wpa_supplicant   │
-│    (system)       │
-└───────────────────┘
+  MCP Client                    wpa-mcp Server                   System
+  (Claude Code /                (Express + MCP SDK)
+   Claude Desktop)
+       │                              │                              │
+       │  HTTP POST /mcp              │                              │
+       │─────────────────────────────►│                              │
+       │                              │  wifi_connect(ssid, psk)     │
+       │                              │─────────────────────────────►│ wpa_supplicant
+       │                              │                              │ dhclient
+       │                              │  { success, ip_address }     │
+       │  ◄─────────────────────────  │  ◄───────────────────────────│
+       │                              │                              │
 ```
 
 ---
 
 ## Features
 
-```
-┌────────────────────┬───────────┬───────────┬───────────────┐
-│ Capability         │ WiFi      │ Browser   │ Connectivity  │
-├────────────────────┼───────────┼───────────┼───────────────┤
-│ Network Scan       │     ✓     │           │               │
-│ WPA-PSK Connect    │     ✓     │           │               │
-│ WPA2-EAP Connect   │     ✓     │           │               │
-│ MAC Randomization  │     ✓     │           │               │
-│ Connection Status  │     ✓     │           │               │
-│ Debug Logs         │     ✓     │           │               │
-│ Captive Portal     │           │     ✓     │       ✓       │
-│ Script Automation  │           │     ✓     │               │
-│ Ping/DNS           │           │           │       ✓       │
-│ Internet Check     │           │           │       ✓       │
-└────────────────────┴───────────┴───────────┴───────────────┘
-```
+| Category | Capabilities |
+|----------|-------------|
+| WiFi Connection | WPA-PSK, WPA2-EAP (PEAP/TTLS), EAP-TLS, open networks, BSSID targeting |
+| Network Management | Scan, status, list saved, forget, reconnect |
+| Privacy | Per-connection MAC randomization, pre-association MAC |
+| Diagnostics | EAP state/decision, filtered debug logs (eap, state, scan, error) |
+| Connectivity | Ping, DNS lookup, internet check, captive portal detection |
+| Browser Automation | Playwright scripts for captive portal login |
 
 ---
 
-## Example Usage
+## Deployment
 
-### Basic WiFi Connection
+wpa-mcp needs a Linux system with a WiFi adapter. There are two approaches depending on your environment.
 
-```
-User: "Scan for WiFi networks"
-Claude: [calls wifi_scan]
-→ Lists available networks with signal strength and security type
+### Choose Your Approach
 
-User: "Connect to 'CoffeeShop' with password 'guest123'"
-Claude: [calls wifi_connect with ssid="CoffeeShop", password="guest123"]
-→ Connects to the network
-```
-
-### WPA2-Enterprise Connection
-
-```
-User: "Connect to corporate WiFi 'CorpNet' with my credentials"
-Claude: [calls wifi_connect_eap with ssid="CorpNet", identity="user@corp.com", password="secret"]
-→ Connects using PEAP/MSCHAPv2
-
-User: "Connection failed, why?"
-Claude: [calls wifi_get_debug_logs with filter="eap"]
-→ Shows EAP authentication logs revealing identity rejection or credential failure
-```
-
-### Debugging Connection Issues
-
-```
-User: "WiFi keeps disconnecting"
-Claude: [calls wifi_get_debug_logs with filter="state"]
-→ Shows state transitions: COMPLETED -> DISCONNECTED -> SCANNING
-
-User: "Check EAP diagnostics"
-Claude: [calls wifi_eap_diagnostics]
-→ Returns: eap_state=IDLE, decision=FAIL (server rejected credentials)
-```
-
-### Captive Portal Handling
-
-```
-User: "Check if there's internet"
-Claude: [calls network_check_internet]
-→ Reports online status and latency
-
-User: "Check for captive portal"
-Claude: [calls network_check_captive]
-→ Detects if behind a login page
-
-User: "Run the hotel-login script with room 101"
-Claude: [calls browser_run_script with script_name="hotel-login", variables={room: "101"}]
-→ Executes Playwright script to handle login
-```
+| | VM with WiFi Passthrough | Docker with netns Isolation |
+|---|---|---|
+| WiFi isolation | Full (own VM) | Full (own network namespace) |
+| Host route impact | None (separate VM) | None (phy moved into container) |
+| Setup complexity | KVM PCI passthrough or USB attach | Docker + `iw` on host |
+| Cleanup | Shutdown VM | `docker rm -f wpa-mcp` |
+| Best for | Dedicated WiFi testing VM | Host machine with PCIe/USB WiFi |
 
 ---
 
-## Quick Start
+### Approach 1: VM with WiFi Passthrough
+
+Run wpa-mcp directly on a Linux VM (or bare metal) where the WiFi adapter is attached via KVM PCI passthrough or USB device passthrough.
+
+#### Step 1: Attach WiFi adapter to the VM
+
+**PCI passthrough (KVM/libvirt):**
 
 ```bash
-# 1. Install dependencies and build
-npm install
-npm run build
+# On the host, find the WiFi adapter's PCI address
+lspci | grep -i wireless
+# e.g. 06:00.0 Network controller: Intel Corporation Wi-Fi 6 AX200
 
-# 2. Set up wpa_supplicant (see "Prerequisites" below)
-
-# 3. Start the server (replace wlan0 with your interface)
-WIFI_INTERFACE=wlan0 npm start
-
-# 4. Register with Claude Code (in another terminal)
-claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
+# Add to VM XML config (virsh edit <vm>):
+# <hostdev mode='subsystem' type='pci'>
+#   <source><address domain='0x0000' bus='0x06' slot='0x00' function='0x0'/></source>
+# </hostdev>
 ```
 
----
-
-## Docker (Network Namespace Isolation)
-
-Run wpa-mcp in a Docker container with a PCIe WiFi adapter fully isolated in
-the container's network namespace. WiFi routes, DHCP, and IP addresses stay
-inside the container and never touch the host routing table.
-
-### Quick Start
+**USB passthrough (KVM/libvirt or VirtualBox):**
 
 ```bash
-# 1. Build the image
-make docker-build
-
-# 2. Persistently unmanage the WiFi interface from NetworkManager
-sudo make nm-unmanage WIFI_INTERFACE=wlp6s0
-
-# 3. Start the container and move the WiFi phy into it
-sudo ./scripts/docker-run.sh wlp6s0
-
-# 4. Connect via MCP (same as non-Docker usage)
-claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
+# On the host, find the USB WiFi adapter
+lsusb | grep -i wireless
+# Pass it through via virt-manager or virsh attach-device
 ```
 
-### How It Works
+After attaching, the WiFi adapter should appear inside the VM.
 
-The container uses Docker bridge networking for MCP client access (port 3000)
-and `iw phy set netns` to move the WiFi phy device into the container's
-namespace. The entrypoint script deletes the bridge default route so WiFi
-becomes the sole default when dhclient runs.
-
-See [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) for the full
-architecture and route trace, and [docs/20_Troubleshooting.md](docs/20_Troubleshooting.md)
-for Docker-specific troubleshooting.
-
-### Makefile Commands (Docker)
-
-| Command | Description |
-|---------|-------------|
-| `make docker-build` | Build Docker image |
-| `make test-integration` | Run Docker netns integration test (requires sudo + WiFi) |
-| `sudo make nm-unmanage` | Persistently unmanage WiFi interface from NetworkManager |
-| `sudo make nm-restore` | Restore NetworkManager management of WiFi interface |
-
----
-
-## Prerequisites
-
-### wpa_supplicant Setup
-
-Before the server can control WiFi, wpa_supplicant must be configured properly.
-
-#### 1. Find your WiFi interface
+#### Step 2: Find the WiFi interface
 
 ```bash
 ip link show | grep -E "^[0-9]+: wl"
-# Example output: 4: wlan0: <BROADCAST,MULTICAST> ...
+# Example: 3: wlp6s0: <BROADCAST,MULTICAST> ...
 ```
 
-#### 2. Disable NetworkManager for WiFi interface (if running)
+#### Step 3: Unmanage from NetworkManager
 
-**Important:** If NetworkManager is managing your WiFi interface, it will interfere with wpa_supplicant connections made by this server. NetworkManager sees the connection but has no matching profile, causing it to disconnect immediately with:
-```
-wpa_supplicant: No network configuration found for the current AP
-wpa_supplicant: CTRL-EVENT-DISCONNECTED ... locally_generated=1
-```
+If NetworkManager is running, it will interfere with wpa_supplicant. Unmanage the interface:
 
 ```bash
-# Check if NetworkManager is managing your interface
-nmcli device status
+# Temporary
+sudo nmcli device set wlp6s0 managed no
 
-# If managed, tell NetworkManager to ignore it (temporary)
-sudo nmcli device set wlan0 managed no
-
-# Or permanently via config file (recommended):
-sudo tee /etc/NetworkManager/conf.d/99-unmanaged-wlan0.conf << 'EOF'
+# Or permanent (recommended)
+sudo tee /etc/NetworkManager/conf.d/99-unmanaged-wlp6s0.conf << 'EOF'
 [keyfile]
-unmanaged-devices=interface-name:wlan0
+unmanaged-devices=interface-name:wlp6s0
 EOF
 sudo systemctl restart NetworkManager
-
-# Verify it's unmanaged
-nmcli device status | grep wlan0
-# Should show: wlan0  wifi  unmanaged  --
 ```
 
-#### 3. Create wpa_supplicant config
+#### Step 4: Create wpa_supplicant config
 
 ```bash
 sudo mkdir -p /etc/wpa_supplicant
@@ -326,92 +116,136 @@ EOF
 sudo chmod 600 /etc/wpa_supplicant/wpa_supplicant.conf
 ```
 
-#### 4. Start wpa_supplicant
+#### Step 5: Install and build wpa-mcp
 
 ```bash
-# Replace wlan0 with your interface name
-sudo wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
+# Requires Node.js 22+
+git clone https://github.com/dogkeeper886/wpa-mcp.git
+cd wpa-mcp
+npm install
+npm run build
 ```
 
-#### 5. Verify wpa_cli works
+#### Step 6: Configure environment
 
 ```bash
-wpa_cli -i wlan0 status
-# Should show: wpa_state=DISCONNECTED (or COMPLETED if connected)
+cp .env.example .env
+# Edit .env: set WIFI_INTERFACE to your interface name
+# WIFI_INTERFACE=wlp6s0
 ```
 
-### Troubleshooting wpa_supplicant
-
-**Problem: `wpa_cli` fails with "Failed to connect to non-global ctrl_ifname"**
-
-This means wpa_supplicant is not running with a control interface for your WiFi device. Common causes:
-
-1. **wpa_supplicant running in D-Bus-only mode** (no `-i` flag):
-   ```bash
-   # Check how it's running
-   pgrep -a wpa_supplicant
-   # Bad: /usr/sbin/wpa_supplicant -c /etc/wpa_supplicant/wpa_supplicant.conf -u -s
-   # Good: /usr/sbin/wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
-   ```
-
-   Fix: Kill and restart with interface flag:
-   ```bash
-   sudo killall wpa_supplicant
-   sudo wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
-   ```
-
-2. **Missing `ctrl_interface` in config**:
-
-   Ensure `/etc/wpa_supplicant/wpa_supplicant.conf` contains:
-   ```
-   ctrl_interface=/var/run/wpa_supplicant
-   ```
-
-3. **Control socket directory doesn't exist**:
-   ```bash
-   ls -la /var/run/wpa_supplicant/
-   # Should show a socket file for your interface
-   ```
-
-**Problem: Interface is DOWN**
+#### Step 7: Start the server
 
 ```bash
-sudo ip link set wlan0 up
+# Foreground
+WIFI_INTERFACE=wlp6s0 npm start
+
+# Or background via Makefile
+make start
 ```
 
-### Install Playwright browser (for browser automation)
+#### Step 8: Register MCP client
 
 ```bash
-npx playwright install chromium
+# Claude Code
+claude mcp add wpa-mcp --transport http http://<VM_IP>:3000/mcp
 ```
+
+Server is now running. Use `make stop` to stop, `make logs` to tail output.
 
 ---
 
-## Configuration
+### Approach 2: Docker with Network Namespace Isolation
 
-### Environment Variables
+Run wpa-mcp in a Docker container. The WiFi phy device is moved into the container's network namespace using `iw phy set netns`, so all WiFi routes, DHCP, and IP addresses stay inside the container and never touch the host routing table.
 
-Copy `.env.example` to `.env` and configure:
+#### Prerequisites
+
+- Docker installed on the host
+- `iw` installed on the host (`sudo dnf install iw` or `sudo apt install iw`)
+- A PCIe or USB WiFi adapter on the host
+
+#### Step 1: Find WiFi interface and its phy
 
 ```bash
-PORT=3000
-HOST=0.0.0.0
-WIFI_INTERFACE=wlan0
+ip link show | grep -E "^[0-9]+: wl"
+# e.g. 3: wlp6s0
+
+cat /sys/class/net/wlp6s0/phy80211/name
+# e.g. phy0
 ```
 
-### Claude Code
-
-Register the MCP server with Claude Code:
+#### Step 2: Unmanage from NetworkManager
 
 ```bash
+sudo make nm-unmanage WIFI_INTERFACE=wlp6s0
+# Creates /etc/NetworkManager/conf.d/99-unmanaged-wlp6s0.conf (persistent)
+```
+
+#### Step 3: Build the Docker image
+
+```bash
+make docker-build
+```
+
+#### Step 4: Start container and move WiFi phy
+
+```bash
+sudo ./scripts/docker-run.sh wlp6s0
+```
+
+This script:
+1. Starts the container with Docker bridge networking (port 3000 forwarded)
+2. Moves the WiFi phy into the container's network namespace
+3. Waits for the server to be healthy
+4. The entrypoint deletes the bridge default route so WiFi becomes the sole default
+
+#### Step 5: Verify
+
+```bash
+# Health check
+curl http://localhost:3000/health
+
+# Host: WiFi interface is gone (moved into container)
+ip link show wlp6s0          # should fail: does not exist
+
+# Container: WiFi interface is present
+docker exec wpa-mcp ip link show wlp6s0
+docker exec wpa-mcp ip route
+```
+
+#### Step 6: Register MCP client
+
+```bash
+# Claude Code (from host or any machine that can reach port 3000)
 claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
 ```
 
-Then start a new Claude Code session to use the WiFi tools.
+#### Cleanup
+
+```bash
+# Stop container (phy returns to host automatically)
+docker rm -f wpa-mcp
+
+# Restore NetworkManager management (optional)
+sudo make nm-restore WIFI_INTERFACE=wlp6s0
+```
+
+See [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) for the full netns architecture and route trace.
+
+---
+
+## MCP Client Configuration
+
+### Claude Code
+
+```bash
+claude mcp add wpa-mcp --transport http http://<HOST_IP>:3000/mcp
+```
 
 ### Claude Desktop
 
-Add to your `claude_desktop_config.json`:
+Add to `claude_desktop_config.json`:
 
 ```json
 {
@@ -423,18 +257,23 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-### Makefile Commands
+---
 
-| Command | Description |
-|---------|-------------|
-| `make start` | Start server in background |
-| `make stop` | Stop server |
-| `make restart` | Restart server |
-| `make logs` | Tail log file |
-| `make status` | Check if server is running |
-| `make clean` | Remove dist/ |
+## Example Usage
 
-For build/install, use npm directly: `npm install`, `npm run build`, `npm run start`.
+```
+User: "Scan for WiFi networks"
+Claude: [calls wifi_scan]
+→ Lists available networks with signal strength and security type
+
+User: "Connect to 'CoffeeShop' with password 'guest123'"
+Claude: [calls wifi_connect with ssid="CoffeeShop", password="guest123"]
+→ Connects, acquires IP via DHCP
+
+User: "Connection failed, why?"
+Claude: [calls wifi_get_debug_logs with filter="eap"]
+→ Shows authentication logs for debugging
+```
 
 ---
 
@@ -465,8 +304,8 @@ For build/install, use npm directly: `npm install`, `npm run build`, `npm run st
 | Tool | Description |
 |------|-------------|
 | `browser_open` | Open URL in default browser |
-| `browser_run_script` | Run a Playwright automation script |
-| `browser_list_scripts` | List available scripts |
+| `browser_run_script` | Run a Playwright automation script for captive portals |
+| `browser_list_scripts` | List available scripts in `~/.config/wpa-mcp/scripts/` |
 
 ### Network Connectivity
 
@@ -479,55 +318,54 @@ For build/install, use npm directly: `npm install`, `npm run build`, `npm run st
 
 ---
 
-## Playwright Scripts
+## Environment Variables
 
-Scripts are stored in `~/.config/wpa-mcp/scripts/`.
+Copy `.env.example` to `.env`. Key settings:
 
-### Script Format
-
-```javascript
-// ~/.config/wpa-mcp/scripts/my-portal.js
-export default async function(page, variables) {
-  const { username, password } = variables;
-
-  await page.goto('http://captive-portal.example.com');
-  await page.fill('#username', username || '');
-  await page.fill('#password', password || '');
-  await page.click('button[type="submit"]');
-
-  return 'Login completed';
-}
-```
-
-### Running Scripts
-
-Via MCP tool:
-```
-browser_run_script("my-portal", { username: "guest", password: "wifi123" })
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 3000 | HTTP server port |
+| `HOST` | 0.0.0.0 | Bind address |
+| `WIFI_INTERFACE` | wlan0 | WiFi interface name |
+| `WPA_CONFIG_PATH` | /etc/wpa_supplicant/wpa_supplicant.conf | wpa_supplicant config |
+| `WPA_DEBUG_LEVEL` | 2 | Debug verbosity (1-3) |
 
 ---
 
-## Debug Log Filters
+## Makefile Commands
 
-The `wifi_get_debug_logs` tool supports these filters to help diagnose specific issues:
-
-| Filter | Use Case | What It Shows |
-|--------|----------|---------------|
-| `all` | Full debugging | All wpa_supplicant logs |
-| `eap` | 802.1X/credential issues | EAP identity, method selection, authentication result |
-| `state` | Connection flow | State transitions (SCANNING → AUTHENTICATING → COMPLETED) |
-| `scan` | Network discovery | Scan results, BSS information |
-| `error` | Failures | Timeouts, authentication failures, TEMP-DISABLED events |
-
-By default, logs are filtered to show only entries since the last WiFi command, making it easy to correlate actions with results.
+| Command | Description |
+|---------|-------------|
+| `make start` | Start server in background |
+| `make stop` | Stop server |
+| `make restart` | Restart server |
+| `make logs` | Tail log file |
+| `make status` | Check if server is running |
+| `make docker-build` | Build Docker image |
+| `make test-integration` | Run Docker netns integration test (requires sudo + WiFi) |
+| `sudo make nm-unmanage` | Persistently unmanage WiFi interface from NetworkManager |
+| `sudo make nm-restore` | Restore NetworkManager management of WiFi interface |
 
 ---
 
 ## API Endpoints
 
-- `POST /mcp` - MCP protocol endpoint (Streamable HTTP)
-- `GET /health` - Health check
+- `POST /mcp` -- MCP protocol endpoint (Streamable HTTP)
+- `GET /health` -- Health check
+
+---
+
+## Reference
+
+| Document | Description |
+|----------|-------------|
+| [docs/README.md](docs/README.md) | Full documentation index, user flow, and feature table |
+| [docs/00_Architecture.md](docs/00_Architecture.md) | Component architecture and details |
+| [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) | Docker netns architecture and route trace |
+| [docs/01_WiFi_Tools.md](docs/01_WiFi_Tools.md) | WiFi tools reference and debug log filters |
+| [docs/03_Browser_Tools.md](docs/03_Browser_Tools.md) | Playwright script format and browser automation |
+| [docs/20_Troubleshooting.md](docs/20_Troubleshooting.md) | Docker and DNS troubleshooting guide |
+| [docs/30_Docker_Dev_Plan.md](docs/30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
 
 ---
 
