@@ -60,9 +60,14 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
-# Copy entrypoint script
+# Copy entrypoint and cert import scripts
 COPY docker/entrypoint.sh ./scripts/docker-entrypoint.sh
+COPY docker/import-certs.mjs ./scripts/import-certs.mjs
 RUN chmod +x ./scripts/docker-entrypoint.sh
+
+# Copy certificate files for auto-import at startup
+# Owned by node so credential store can read them without permission issues
+COPY --chown=node:node certs/ /app/certs/
 
 # Default environment
 ENV WIFI_INTERFACE=wlan0

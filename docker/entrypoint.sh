@@ -35,5 +35,11 @@ if ip link show "$IFACE" &>/dev/null; then
   sudo ip link set "$IFACE" up 2>/dev/null || true
 fi
 
+# Auto-import certificates into credential store on first boot
+if [ -d /app/certs ] && [ "$(ls -A /app/certs 2>/dev/null)" ]; then
+  echo "entrypoint: importing certificates..."
+  node /app/scripts/import-certs.mjs || echo "entrypoint: cert import failed (non-fatal)"
+fi
+
 # Hand off to Node.js server
 exec node dist/index.js "$@"
