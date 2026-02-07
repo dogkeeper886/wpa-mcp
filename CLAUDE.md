@@ -117,12 +117,20 @@ The server can run wpa_supplicant as a managed subprocess (WpaDaemon) or use an 
    gh pr create --title "Title" --body "Description"
    ```
 
-4. **After PR is approved, merge and delete branch**:
+4. **Review the PR before merging**:
+   ```bash
+   gh pr diff <number>
+   ```
+   - Review the full diff against the Code Review Guidelines below
+   - Check for: readability, consistent patterns, error handling with context, appropriate logging, no sensitive data
+   - Do NOT merge immediately after creating -- always review first
+
+5. **After review passes, merge and delete branch**:
    ```bash
    gh pr merge <number> --merge --delete-branch
    ```
 
-5. **Update local main**:
+6. **Update local main**:
    ```bash
    git checkout main
    git pull
