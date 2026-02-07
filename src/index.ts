@@ -63,6 +63,24 @@ app.post("/mcp", async (req: Request, res: Response) => {
   }
 });
 
+// GET and DELETE not supported in stateless mode — return 405 so clients
+// (e.g. Cursor) know SSE streaming is unavailable instead of getting 404.
+app.get("/mcp", (_req: Request, res: Response) => {
+  res.status(405).json({
+    jsonrpc: "2.0",
+    error: { code: -32000, message: "Method not allowed in stateless mode" },
+    id: null,
+  });
+});
+
+app.delete("/mcp", (_req: Request, res: Response) => {
+  res.status(405).json({
+    jsonrpc: "2.0",
+    error: { code: -32000, message: "Method not allowed in stateless mode" },
+    id: null,
+  });
+});
+
 // Health check endpoint
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", server: "wpa-mcp", version: "1.0.0" });
