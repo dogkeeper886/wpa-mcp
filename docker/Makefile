@@ -8,7 +8,7 @@
 #   make status      # Check container status
 #   make help        # Show available targets
 
-.PHONY: build start stop restart logs status shell clean help
+.PHONY: build start stop restart logs status shell clean test-integration help
 
 # Load .env from project root if it exists
 -include ../.env
@@ -35,6 +35,7 @@ help:
 	@echo "  status   - Check container status and health"
 	@echo "  shell    - Open bash in running container"
 	@echo "  clean    - Remove Docker image"
+	@echo "  test-integration - Integration test (requires sudo + WiFi)"
 	@echo "  help     - Show this help"
 	@echo ""
 	@echo "Current configuration (from .env or defaults):"
@@ -83,6 +84,19 @@ status:
 
 shell:
 	@docker exec -it $(CONTAINER_NAME) bash
+
+# Integration test: Docker + netns WiFi isolation
+# Requires: sudo, real WiFi interface, Docker
+# Usage: sudo make test-integration TEST_SSID="MyNetwork" TEST_PSK="password"
+test-integration:
+	@if [ -z "$(TEST_SSID)" ]; then \
+		echo "Error: TEST_SSID is required"; \
+		echo "Usage: sudo make test-integration TEST_SSID=\"MyNetwork\" TEST_PSK=\"password\""; \
+		exit 1; \
+	fi
+	WIFI_INTERFACE="$(WIFI_INTERFACE)" TEST_SSID="$(TEST_SSID)" TEST_PSK="$(TEST_PSK)" \
+		WPA_MCP_IMAGE="wpa-mcp:test" \
+		$(PROJECT_ROOT)/tests/integration/test-docker-netns.sh
 
 clean:
 	@echo "Removing Docker image '$(WPA_MCP_IMAGE)'..."
