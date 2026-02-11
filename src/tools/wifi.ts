@@ -5,6 +5,7 @@ import { WpaDaemon, LogFilter } from "../lib/wpa-daemon.js";
 import { DhcpManager } from "../lib/dhcp-manager.js";
 import { WpaConfig } from "../lib/wpa-config.js";
 import { credentialStore } from "../lib/credential-store.js";
+import { readInterfaceMac, setInterfaceMac } from "../lib/mac-utils.js";
 import type {
   MacAddressConfig,
   MacAddressMode,
@@ -19,6 +20,51 @@ export function registerWifiTools(
   dhcpManager?: DhcpManager,
   wpaConfig?: WpaConfig,
 ): void {
+  /**
+   * Restores the permanent hardware MAC on the interface before device-mode connections.
+   * In Docker containers, the kernel may assign a locally-administered MAC when the
+   * WiFi phy is moved into the container namespace. This ensures `mac_mode: "device"`
+   * uses the real hardware MAC for RADIUS authentication.
+   *
+   * Requires stopping and restarting wpa_supplicant since the interface must be
+   * brought down to change its MAC address.
+   */
+  async function restoreDeviceMac(
+    targetIface: string,
+    macMode: MacAddressMode | undefined,
+    daemonInstance: WpaDaemon | undefined,
+  ): Promise<void> {
+    // Only restore for device mode (explicit or default when no mode specified)
+    if (macMode && macMode !== 'device') return;
+
+    if (!daemonInstance) return;
+
+    const permanentMac = daemonInstance.getPermanentMac();
+    if (!permanentMac) return;
+
+    let currentMac: string;
+    try {
+      currentMac = await readInterfaceMac(targetIface);
+    } catch {
+      return;
+    }
+
+    if (currentMac === permanentMac) return;
+
+    console.log(`Restoring permanent MAC on ${targetIface}: ${currentMac} -> ${permanentMac}`);
+    try {
+      await daemonInstance.stop();
+      await setInterfaceMac(targetIface, permanentMac);
+      await daemonInstance.start();
+    } catch (error) {
+      console.error(`Failed to restore permanent MAC on ${targetIface}:`, error);
+      // Ensure daemon is running even if MAC restore failed
+      if (!(await daemonInstance.isRunning())) {
+        await daemonInstance.start();
+      }
+    }
+  }
+
   // wifi_scan - Scan for available networks
   server.tool(
     "wifi_scan",
@@ -184,6 +230,9 @@ export function registerWifiTools(
             randAddrLifetime: rand_addr_lifetime,
           };
         }
+
+        // Restore permanent MAC for device mode in Docker environments
+        await restoreDeviceMac(targetIface, mac_mode as MacAddressMode | undefined, daemon);
 
         if (password) {
           // WPA-PSK connection
@@ -362,6 +411,9 @@ export function registerWifiTools(
             randAddrLifetime: rand_addr_lifetime,
           };
         }
+
+        // Restore permanent MAC for device mode in Docker environments
+        await restoreDeviceMac(targetIface, mac_mode as MacAddressMode | undefined, daemon);
 
         await wpa.connectEap(
           ssid,
@@ -950,6 +1002,9 @@ export function registerWifiTools(
           };
         }
 
+        // Restore permanent MAC for device mode in Docker environments
+        await restoreDeviceMac(targetIface, mac_mode as MacAddressMode | undefined, daemon);
+
         await wpa.connectTls(
           ssid,
           resolvedIdentity,
@@ -1183,8 +1238,26 @@ export function registerWifiTools(
         });
 
         // 4. Restart daemon to apply config (auto_interworking will trigger ANQP)
+        //    For device mode, restore permanent MAC between stop and start
         if (daemon) {
-          await daemon.restart();
+          const needsMacRestore = !mac_mode || mac_mode === 'device';
+          const permMac = daemon.getPermanentMac();
+
+          if (needsMacRestore && permMac) {
+            await daemon.stop();
+            try {
+              const currentMac = await readInterfaceMac(targetIface);
+              if (currentMac !== permMac) {
+                console.log(`HS20: Restoring permanent MAC on ${targetIface}: ${currentMac} -> ${permMac}`);
+                await setInterfaceMac(targetIface, permMac);
+              }
+            } catch (error) {
+              console.error(`HS20: Failed to restore permanent MAC on ${targetIface}:`, error);
+            }
+            await daemon.start();
+          } else {
+            await daemon.restart();
+          }
         }
 
         // 5. Wait for auto-connection (30 seconds - ANQP discovery takes time)

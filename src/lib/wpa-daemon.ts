@@ -2,6 +2,7 @@ import { spawn, ChildProcess, exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
+import { readPermanentMac } from './mac-utils.js';
 
 const execAsync = promisify(exec);
 
@@ -10,6 +11,7 @@ export class WpaDaemon {
   private lastCommandTimestamp: number = 0;
   private process: ChildProcess | null = null;
   private logStream: fs.WriteStream | null = null;
+  private permanentMac: string | null = null;
 
   constructor(
     private iface: string,
@@ -44,6 +46,14 @@ export class WpaDaemon {
     } catch (error) {
       console.error(`Failed to bring up interface ${this.iface}:`, error);
       throw error;
+    }
+
+    // Capture permanent hardware MAC before wpa_supplicant starts
+    try {
+      this.permanentMac = await readPermanentMac(this.iface);
+      console.log(`Permanent MAC for ${this.iface}: ${this.permanentMac}`);
+    } catch (error) {
+      console.error(`Failed to read permanent MAC for ${this.iface}:`, error);
     }
 
     // Create log file stream (this will truncate any existing file)
@@ -220,6 +230,10 @@ export class WpaDaemon {
 
   getInterface(): string {
     return this.iface;
+  }
+
+  getPermanentMac(): string | null {
+    return this.permanentMac;
   }
 }
 
