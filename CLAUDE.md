@@ -10,12 +10,27 @@ npm run build        # Compile TypeScript to dist/
 npm run dev          # Watch mode for development
 npm start            # Run the compiled server
 
-# Process management (via Makefile)
+# Process management (via project root Makefile)
 make start           # Start server in background (writes to wpa-mcp.log)
 make stop            # Stop server
 make restart         # Restart server
 make logs            # Tail log file
 make status          # Check if server is running
+
+# Docker (via docker/Makefile — requires real WiFi hardware)
+cd docker
+make build           # Build Docker image
+sudo make start      # Start container (moves WiFi phy into container netns)
+make stop            # Stop container (WiFi returns to host)
+make restart         # Stop then start
+make logs            # Follow container logs
+make status          # Check container status and health
+make shell           # Open bash in running container
+```
+
+When developing with Docker, rebuild the image after code changes:
+```bash
+npm run build && cd docker && make build && make stop && sudo make start
 ```
 
 ## Environment Configuration
@@ -44,22 +59,22 @@ This is an MCP (Model Context Protocol) server that provides WiFi control via wp
 ├─────────────────────────────────────────────────────────────────┤
 │                      McpServer                                  │
 │              (registers tools from src/tools/*)                 │
-└───────┬─────────────────────┬─────────────────────┬─────────────┘
-        │                     │                     │
-        ▼                     ▼                     ▼
-┌───────────────┐     ┌───────────────┐     ┌───────────────┐
-│ src/tools/    │     │ src/tools/    │     │ src/tools/    │
-│   wifi.ts     │     │  browser.ts   │     │connectivity.ts│
-└───────┬───────┘     └───────┬───────┘     └───────┬───────┘
-        │                     │                     │
-        ▼                     ▼                     ▼
-┌───────────────┐     ┌───────────────┐     ┌───────────────┐
-│ src/lib/      │     │ src/lib/      │     │ src/lib/      │
-│  wpa-cli.ts   │     │ playwright-   │     │ network-      │
-│  wpa-daemon.ts│     │  runner.ts    │     │  check.ts     │
-│  dhcp-manager │     └───────────────┘     └───────────────┘
-│  mac-utils.ts │
-└───────────────┘
+└──┬──────────────┬─────────────────┬─────────────────┬───────────┘
+   │              │                 │                 │
+   ▼              ▼                 ▼                 ▼
+┌────────┐  ┌──────────┐  ┌──────────────┐  ┌──────────────┐
+│  wifi  │  │ browser  │  │connectivity  │  │ credentials  │
+│  .ts   │  │  .ts     │  │    .ts       │  │    .ts       │
+└───┬────┘  └────┬─────┘  └──────┬───────┘  └──────┬───────┘
+    │            │               │                  │
+    ▼            ▼               ▼                  ▼
+┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────────┐
+│ wpa-cli    │ │ playwright-│ │ network-   │ │ credential-    │
+│ wpa-daemon │ │  runner    │ │  check     │ │  store         │
+│ dhcp-mgr   │ └────────────┘ └────────────┘ │ cert-manager   │
+│ mac-utils  │                               └────────────────┘
+│ wpa-config │
+└────────────┘
 ```
 
 ### Key Components
@@ -67,15 +82,19 @@ This is an MCP (Model Context Protocol) server that provides WiFi control via wp
 - **src/index.ts** - Entry point. Creates Express server, MCP server, WpaDaemon, and DhcpManager. Registers all tools.
 
 - **src/tools/** - MCP tool definitions using Zod schemas for validation:
-  - `wifi.ts` - WiFi management tools (scan, connect, connect_eap, disconnect, status, etc.)
+  - `wifi.ts` - WiFi management tools (scan, connect, connect_eap, connect_tls, hs20_connect, disconnect, status, etc.)
+  - `credentials.ts` - Credential store/list/get/delete tools for EAP-TLS certificates
   - `browser.ts` - Playwright script runner for captive portals
   - `connectivity.ts` - Network diagnostics (ping, DNS, captive portal detection)
 
 - **src/lib/** - Core implementation:
   - `wpa-cli.ts` - WpaCli class wrapping `wpa_cli` commands
-  - `wpa-daemon.ts` - WpaDaemon class manages wpa_supplicant process and debug logs
+  - `wpa-daemon.ts` - WpaDaemon class manages wpa_supplicant process, debug logs, and permanent MAC capture
   - `dhcp-manager.ts` - Manages dhclient for IP address acquisition
-  - `mac-utils.ts` - MAC address randomization helpers
+  - `mac-utils.ts` - MAC address mode conversion, interface MAC read/write, and permanent MAC detection
+  - `wpa-config.ts` - WpaConfig class for wpa_supplicant.conf management (HS20 credentials, global MAC settings)
+  - `credential-store.ts` - Persists EAP-TLS certificates and metadata to ~/.config/wpa-mcp/credentials/
+  - `cert-manager.ts` - Certificate file management and validation
   - `network-check.ts` - Connectivity checks using ping, DNS, HTTP
   - `playwright-runner.ts` - Runs user scripts from ~/.config/wpa-mcp/scripts/
 
