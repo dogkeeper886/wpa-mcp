@@ -1,4 +1,9 @@
 import type { MacAddressMode, PreassocMacMode } from '../types.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { readFile } from 'fs/promises';
+
+const execAsync = promisify(exec);
 
 // MAC address validation regex (aa:bb:cc:dd:ee:ff format)
 const MAC_REGEX = /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/;
@@ -135,4 +140,63 @@ export function macModeToGlobalWpaValue(
   }
 
   return result;
+}
+
+/**
+ * Reads the current MAC address of a network interface from sysfs.
+ */
+export async function readInterfaceMac(iface: string): Promise<string> {
+  const path = `/sys/class/net/${iface}/address`;
+  const mac = (await readFile(path, 'utf-8')).trim().toLowerCase();
+  if (!isValidMacAddress(mac)) {
+    throw new Error(`Invalid MAC read from ${path}: ${mac}`);
+  }
+  return mac;
+}
+
+/**
+ * Reads the permanent (hardware) MAC address of a network interface.
+ * Parses `permaddr` from `ip link show <iface>`. Falls back to the
+ * current interface MAC if permaddr is not available (e.g., virtual interfaces).
+ */
+export async function readPermanentMac(iface: string): Promise<string> {
+  try {
+    const { stdout } = await execAsync(`ip link show ${iface}`);
+    const match = stdout.match(/permaddr\s+([0-9a-fA-F:]{17})/);
+    if (match) {
+      const mac = match[1].toLowerCase();
+      if (isValidMacAddress(mac)) {
+        return mac;
+      }
+    }
+  } catch {
+    // permaddr not available, fall back to current MAC
+  }
+  return readInterfaceMac(iface);
+}
+
+/**
+ * Sets the MAC address on a network interface using `ip link set`.
+ * Brings the interface down, sets the address, then brings it back up.
+ * On failure, ensures the interface is brought back up.
+ */
+export async function setInterfaceMac(iface: string, mac: string): Promise<void> {
+  if (!isValidMacAddress(mac)) {
+    throw new Error(`Invalid MAC address: ${mac}`);
+  }
+
+  try {
+    await execAsync(`sudo ip link set ${iface} down`);
+    await execAsync(`sudo ip link set ${iface} address ${mac}`);
+    await execAsync(`sudo ip link set ${iface} up`);
+    console.log(`Set ${iface} MAC to ${mac}`);
+  } catch (error) {
+    // Ensure interface is brought back up even if address change fails
+    try {
+      await execAsync(`sudo ip link set ${iface} up`);
+    } catch {
+      // Best effort to restore interface
+    }
+    throw new Error(`Failed to set MAC on ${iface}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
