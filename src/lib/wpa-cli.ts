@@ -183,6 +183,79 @@ export class WpaCli {
     }
   }
 
+  async connectOwe(
+    ssid: string,
+    macConfig?: MacAddressConfig,
+    bssid?: string,
+  ): Promise<void> {
+    const networkIdStr = await this.run("add_network");
+    const networkId = parseInt(networkIdStr, 10);
+
+    if (isNaN(networkId)) {
+      throw new Error(`Failed to add network: ${networkIdStr}`);
+    }
+
+    try {
+      // Set SSID
+      const ssidResult = await this.run(
+        `set_network ${networkId} ssid '"${ssid}"'`,
+      );
+      if (!ssidResult.includes("OK")) {
+        throw new Error(`Failed to set SSID: ${ssidResult}`);
+      }
+
+      // Set BSSID if specified
+      if (bssid) {
+        const bssidResult = await this.run(
+          `set_network ${networkId} bssid ${bssid}`,
+        );
+        if (!bssidResult.includes("OK")) {
+          throw new Error(`Failed to set BSSID: ${bssidResult}`);
+        }
+      }
+
+      // Set key management to OWE
+      const keyMgmtResult = await this.run(
+        `set_network ${networkId} key_mgmt OWE`,
+      );
+      if (!keyMgmtResult.includes("OK")) {
+        throw new Error(`Failed to set key_mgmt OWE: ${keyMgmtResult}`);
+      }
+
+      // Enable Management Frame Protection (required for OWE)
+      const pmfResult = await this.run(
+        `set_network ${networkId} ieee80211w 2`,
+      );
+      if (!pmfResult.includes("OK")) {
+        throw new Error(`Failed to set ieee80211w: ${pmfResult}`);
+      }
+
+      // Apply MAC address configuration if provided
+      if (macConfig) {
+        await this.applyMacConfig(networkId, macConfig);
+      }
+
+      // Enable network
+      const enableResult = await this.run(`enable_network ${networkId}`);
+      if (!enableResult.includes("OK")) {
+        throw new Error(`Failed to enable network: ${enableResult}`);
+      }
+
+      // Select this network
+      const selectResult = await this.run(`select_network ${networkId}`);
+      if (!selectResult.includes("OK")) {
+        throw new Error(`Failed to select network: ${selectResult}`);
+      }
+
+      // Save config
+      await this.run("save_config");
+    } catch (error) {
+      // Clean up on failure
+      await this.run(`remove_network ${networkId}`).catch(() => {});
+      throw error;
+    }
+  }
+
   async connectEap(
     ssid: string,
     identity: string,
