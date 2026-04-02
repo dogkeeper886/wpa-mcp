@@ -38,134 +38,15 @@ MCP (Model Context Protocol) server for WiFi control via wpa_supplicant. Enables
 
 ## Deployment
 
-wpa-mcp needs a Linux system with a WiFi adapter. There are two approaches depending on your environment.
+wpa-mcp runs in a Docker container with the WiFi phy device moved into the container's network namespace using `iw phy set netns`. All WiFi routes, DHCP, and IP addresses stay inside the container and never touch the host routing table.
 
-### Choose Your Approach
-
-| | VM with WiFi Passthrough | Docker with netns Isolation |
-|---|---|---|
-| WiFi isolation | Full (own VM) | Full (own network namespace) |
-| Host route impact | None (separate VM) | None (phy moved into container) |
-| Setup complexity | KVM PCI passthrough or USB attach | Docker + `iw` on host |
-| Cleanup | Shutdown VM | `docker rm -f wpa-mcp` |
-| Best for | Dedicated WiFi testing VM | Host machine with PCIe/USB WiFi |
-
----
-
-### Approach 1: VM with WiFi Passthrough
-
-Run wpa-mcp directly on a Linux VM (or bare metal) where the WiFi adapter is attached via KVM PCI passthrough or USB device passthrough.
-
-#### Step 1: Attach WiFi adapter to the VM
-
-**PCI passthrough (KVM/libvirt):**
-
-```bash
-# On the host, find the WiFi adapter's PCI address
-lspci | grep -i wireless
-# e.g. 06:00.0 Network controller: Intel Corporation Wi-Fi 6 AX200
-
-# Add to VM XML config (virsh edit <vm>):
-# <hostdev mode='subsystem' type='pci'>
-#   <source><address domain='0x0000' bus='0x06' slot='0x00' function='0x0'/></source>
-# </hostdev>
-```
-
-**USB passthrough (KVM/libvirt or VirtualBox):**
-
-```bash
-# On the host, find the USB WiFi adapter
-lsusb | grep -i wireless
-# Pass it through via virt-manager or virsh attach-device
-```
-
-After attaching, the WiFi adapter should appear inside the VM.
-
-#### Step 2: Find the WiFi interface
-
-```bash
-ip link show | grep -E "^[0-9]+: wl"
-# Example: 3: wlp6s0: <BROADCAST,MULTICAST> ...
-```
-
-#### Step 3: Unmanage from NetworkManager
-
-If NetworkManager is running, it will interfere with wpa_supplicant. Unmanage the interface:
-
-```bash
-# Temporary
-sudo nmcli device set wlp6s0 managed no
-
-# Or permanent (recommended)
-sudo tee /etc/NetworkManager/conf.d/99-unmanaged-wlp6s0.conf << 'EOF'
-[keyfile]
-unmanaged-devices=interface-name:wlp6s0
-EOF
-sudo systemctl restart NetworkManager
-```
-
-#### Step 4: Create wpa_supplicant config
-
-```bash
-sudo mkdir -p /etc/wpa_supplicant
-sudo tee /etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
-ctrl_interface=/var/run/wpa_supplicant
-update_config=1
-country=US
-EOF
-sudo chmod 600 /etc/wpa_supplicant/wpa_supplicant.conf
-```
-
-#### Step 5: Install and build wpa-mcp
-
-```bash
-# Requires Node.js 22+
-git clone https://github.com/dogkeeper886/wpa-mcp.git
-cd wpa-mcp
-npm install
-npm run build
-```
-
-#### Step 6: Configure environment
-
-```bash
-cp .env.example .env
-# Edit .env: set WIFI_INTERFACE to your interface name
-# WIFI_INTERFACE=wlp6s0
-```
-
-#### Step 7: Start the server
-
-```bash
-# Foreground
-WIFI_INTERFACE=wlp6s0 npm start
-
-# Or background via Makefile
-make start
-```
-
-#### Step 8: Register MCP client
-
-```bash
-# Claude Code
-claude mcp add wpa-mcp --transport http http://<VM_IP>:3000/mcp
-```
-
-Server is now running. Use `make stop` to stop, `make logs` to tail output.
-
----
-
-### Approach 2: Docker with Network Namespace Isolation
-
-Run wpa-mcp in a Docker container. The WiFi phy device is moved into the container's network namespace using `iw phy set netns`, so all WiFi routes, DHCP, and IP addresses stay inside the container and never touch the host routing table.
-
-#### Prerequisites
+### Prerequisites
 
 - Docker installed on the host
 - `iw` installed on the host (`sudo dnf install iw` or `sudo apt install iw`)
 - A PCIe or USB WiFi adapter on the host
 
-#### Step 1: Find WiFi interface and its phy
+### Step 1: Find WiFi interface and its phy
 
 ```bash
 ip link show | grep -E "^[0-9]+: wl"
@@ -175,32 +56,27 @@ cat /sys/class/net/wlp6s0/phy80211/name
 # e.g. phy0
 ```
 
-#### Step 2: Unmanage from NetworkManager
+### Step 2: Unmanage from NetworkManager
 
 ```bash
 sudo make nm-unmanage WIFI_INTERFACE=wlp6s0
 # Creates /etc/NetworkManager/conf.d/99-unmanaged-wlp6s0.conf (persistent)
 ```
 
-#### Step 3: Build the Docker image
+### Step 3: Build and start
 
 ```bash
 make docker-build
+sudo make docker-start
 ```
 
-#### Step 4: Start container and move WiFi phy
-
-```bash
-sudo ./scripts/docker-run.sh wlp6s0
-```
-
-This script:
+The start script:
 1. Starts the container with Docker bridge networking (port 3000 forwarded)
 2. Moves the WiFi phy into the container's network namespace
 3. Waits for the server to be healthy
 4. The entrypoint deletes the bridge default route so WiFi becomes the sole default
 
-#### Step 5: Verify
+### Step 4: Verify
 
 ```bash
 # Health check
@@ -214,18 +90,18 @@ docker exec wpa-mcp ip link show wlp6s0
 docker exec wpa-mcp ip route
 ```
 
-#### Step 6: Register MCP client
+### Step 5: Register MCP client
 
 ```bash
 # Claude Code (from host or any machine that can reach port 3000)
 claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
 ```
 
-#### Cleanup
+### Cleanup
 
 ```bash
 # Stop container (phy returns to host automatically)
-docker rm -f wpa-mcp
+make docker-stop
 
 # Restore NetworkManager management (optional)
 sudo make nm-restore WIFI_INTERFACE=wlp6s0
@@ -336,13 +212,13 @@ Copy `.env.example` to `.env`. Key settings:
 
 | Command | Description |
 |---------|-------------|
-| `make start` | Start server in background |
-| `make stop` | Stop server |
-| `make restart` | Restart server |
-| `make logs` | Tail log file |
-| `make status` | Check if server is running |
 | `make docker-build` | Build Docker image |
-| `make test-integration` | Run Docker netns integration test (requires sudo + WiFi) |
+| `sudo make docker-start` | Start container (moves WiFi phy into container netns) |
+| `make docker-stop` | Stop container (WiFi returns to host) |
+| `make docker-restart` | Stop then start |
+| `make docker-logs` | Follow container logs |
+| `make docker-status` | Check container status and health |
+| `make docker-shell` | Open bash in running container |
 | `sudo make nm-unmanage` | Persistently unmanage WiFi interface from NetworkManager |
 | `sudo make nm-restore` | Restore NetworkManager management of WiFi interface |
 
