@@ -35,13 +35,16 @@ help:
 
 start:
 	@echo "Starting server..."
+	@for f in wpa-mcp.pid wpa-mcp.log; do \
+		if [ -f "$$f" ] && [ ! -w "$$f" ]; then sudo rm -f "$$f"; fi; \
+	done
 	@nohup node dist/index.js > wpa-mcp.log 2>&1 & echo $$! > wpa-mcp.pid
 	@echo "Server started (PID: $$(cat wpa-mcp.pid)). Use 'make logs' to view output."
 
 stop:
 	@echo "Stopping server..."
 	@if [ -f wpa-mcp.pid ]; then kill $$(cat wpa-mcp.pid) 2>/dev/null || true; rm -f wpa-mcp.pid; fi
-	@pkill -f "node.*dist/index.js" 2>/dev/null || true
+	@pgrep -x "node" | xargs -r -I{} sh -c 'grep -qz "dist/index.js" /proc/{}/cmdline 2>/dev/null && kill {}' || true
 	@echo "Server stopped."
 
 restart: stop start

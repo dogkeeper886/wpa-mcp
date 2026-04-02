@@ -56,6 +56,17 @@ export class WpaDaemon {
       console.error(`Failed to read permanent MAC for ${this.iface}:`, error);
     }
 
+    // Remove stale log file owned by root (e.g. from a previous sudo run)
+    try {
+      await fsPromises.access(this.logFile, fs.constants.W_OK);
+    } catch {
+      try {
+        await execAsync(`sudo rm -f "${this.logFile}"`);
+      } catch {
+        // ignore
+      }
+    }
+
     // Create log file stream (this will truncate any existing file)
     this.logStream = fs.createWriteStream(this.logFile, { flags: 'w' });
 
