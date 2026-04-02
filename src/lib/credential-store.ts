@@ -346,7 +346,8 @@ export class CredentialStore {
     privateKeyPath: string,
     caCertPath?: string,
     privateKeyPassword?: string,
-    description?: string
+    description?: string,
+    customId?: string
   ): Promise<{ id: string; identity: string; created: boolean; path: string }> {
     // Validate files first
     console.log('Validating certificate files', { clientCertPath, privateKeyPath, caCertPath });
@@ -357,7 +358,7 @@ export class CredentialStore {
     }
 
     // Extract ID and identity from certificate
-    const id = await generateIdFromCert(clientCertPath);
+    const id = customId || await generateIdFromCert(clientCertPath);
     const identity = await extractCN(clientCertPath);
 
     console.log('Auto-generated credential info', { id, identity });

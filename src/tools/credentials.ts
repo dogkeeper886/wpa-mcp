@@ -11,6 +11,10 @@ export function registerCredentialTools(server: McpServer): void {
       "(3) Use wifi_connect_tls with returned credential_id. " +
       "ID is auto-generated from certificate fingerprint. Identity is auto-extracted from certificate CN.",
     {
+      id: z
+        .string()
+        .optional()
+        .describe("Custom credential ID. If omitted, auto-generated from certificate fingerprint. Use this to store multiple credentials with the same client certificate."),
       client_cert_path: z.string().describe("Absolute path to client certificate in PEM format"),
       private_key_path: z.string().describe("Absolute path to private key in PEM format"),
       ca_cert_path: z
@@ -27,6 +31,7 @@ export function registerCredentialTools(server: McpServer): void {
         .describe("Human-readable description of this credential"),
     },
     async ({
+      id,
       client_cert_path,
       private_key_path,
       ca_cert_path,
@@ -39,7 +44,8 @@ export function registerCredentialTools(server: McpServer): void {
           private_key_path,
           ca_cert_path,
           private_key_password,
-          description
+          description,
+          id
         );
 
         return {
