@@ -5,32 +5,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build and Run Commands
 
 ```bash
+# Development
 npm install          # Install dependencies
 npm run build        # Compile TypeScript to dist/
 npm run dev          # Watch mode for development
-npm start            # Run the compiled server
 
-# Process management (via project root Makefile)
-make start           # Start server in background (writes to wpa-mcp.log)
-make stop            # Stop server
-make restart         # Restart server
-make logs            # Tail log file
-make status          # Check if server is running
-
-# Docker (via docker/Makefile — requires real WiFi hardware)
-cd docker
-make build           # Build Docker image
-sudo make start      # Start container (moves WiFi phy into container netns)
-make stop            # Stop container (WiFi returns to host)
-make restart         # Stop then start
-make logs            # Follow container logs
-make status          # Check container status and health
-make shell           # Open bash in running container
+# Docker deployment (requires real WiFi hardware)
+make docker-build    # Build Docker image
+sudo make docker-start   # Start container (moves WiFi phy into container netns)
+make docker-stop     # Stop container (WiFi returns to host)
+make docker-restart  # Stop then start
+make docker-logs     # Follow container logs
+make docker-status   # Check container status and health
+make docker-shell    # Open bash in running container
 ```
 
 When developing with Docker, rebuild the image after code changes:
 ```bash
-npm run build && cd docker && make build && make stop && sudo make start
+npm run build && make docker-build && make docker-stop && sudo make docker-start
 ```
 
 ## Environment Configuration

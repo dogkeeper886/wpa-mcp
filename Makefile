@@ -1,67 +1,66 @@
 # wpa-mcp Makefile
-# Local process management for wpa-mcp server
+# Development build and Docker deployment
 
-.PHONY: start stop restart logs status clean help upload-certs nm-unmanage nm-restore
+.PHONY: build clean help upload-certs nm-unmanage nm-restore docker-build docker-start docker-stop docker-restart docker-logs docker-status docker-shell
 
 # Load .env if exists
 -include .env
 
 # Default values (can be overridden in .env or command line)
 CERT_REMOTE_DIR ?= /tmp/certs
+WIFI_INTERFACE ?= wlan0
 
 help:
 	@echo "wpa-mcp Makefile targets:"
-	@echo "  start        - Start server in background"
-	@echo "  stop         - Stop server"
-	@echo "  restart      - Restart server"
-	@echo "  logs         - Tail log file"
-	@echo "  status       - Check if server is running"
-	@echo "  clean        - Remove dist/"
-	@echo "  upload-certs      - Upload EAP-TLS certificates to remote host"
-	@echo "  nm-unmanage       - Persistently unmanage WiFi interface from NetworkManager"
-	@echo "  nm-restore        - Restore NetworkManager management of WiFi interface"
 	@echo ""
-	@echo "For build/install, use npm directly:"
+	@echo "Development:"
 	@echo "  npm install      - Install dependencies"
 	@echo "  npm run build    - Compile TypeScript"
-	@echo "  npm run start    - Run in foreground"
+	@echo "  npm run dev      - Watch mode"
+	@echo "  clean            - Remove dist/"
+	@echo ""
+	@echo "Docker (requires real WiFi hardware):"
+	@echo "  docker-build     - Build Docker image"
+	@echo "  docker-start     - Start container (requires sudo, moves WiFi phy)"
+	@echo "  docker-stop      - Stop container (WiFi returns to host)"
+	@echo "  docker-restart   - Stop then start"
+	@echo "  docker-logs      - Follow container logs"
+	@echo "  docker-status    - Check container status and health"
+	@echo "  docker-shell     - Open bash in running container"
+	@echo ""
+	@echo "Network setup:"
+	@echo "  nm-unmanage      - Persistently unmanage WiFi interface from NetworkManager"
+	@echo "  nm-restore       - Restore NetworkManager management of WiFi interface"
 	@echo ""
 	@echo "Certificate upload (configure in .env or pass as args):"
-	@echo "  make upload-certs CERT_REMOTE_HOST=user@host \\"
+	@echo "  upload-certs CERT_REMOTE_HOST=user@host \\"
 	@echo "       CERT_CLIENT=./client.crt CERT_KEY=./client.key CERT_CA=./ca.crt"
-	@echo ""
-	@echo "For Docker deployment, see docker/Makefile:"
-	@echo "  cd docker && make help"
-
-start:
-	@echo "Starting server..."
-	@for f in wpa-mcp.pid wpa-mcp.log; do \
-		if [ -f "$$f" ] && [ ! -w "$$f" ]; then sudo rm -f "$$f"; fi; \
-	done
-	@nohup node dist/index.js > wpa-mcp.log 2>&1 & echo $$! > wpa-mcp.pid
-	@echo "Server started (PID: $$(cat wpa-mcp.pid)). Use 'make logs' to view output."
-
-stop:
-	@echo "Stopping server..."
-	@if [ -f wpa-mcp.pid ]; then kill $$(cat wpa-mcp.pid) 2>/dev/null || true; rm -f wpa-mcp.pid; fi
-	@pgrep -x "node" | xargs -r -I{} sh -c 'grep -qz "dist/index.js" /proc/{}/cmdline 2>/dev/null && kill {}' || true
-	@echo "Server stopped."
-
-restart: stop start
-
-logs:
-	@tail -f wpa-mcp.log
-
-status:
-	@if [ -f wpa-mcp.pid ] && kill -0 $$(cat wpa-mcp.pid) 2>/dev/null; then \
-		echo "Server is running (PID: $$(cat wpa-mcp.pid))"; \
-	else \
-		echo "Server is not running"; \
-	fi
 
 clean:
 	@rm -rf dist/
 	@echo "Cleaned dist/"
+
+# Docker targets (proxy to docker/Makefile)
+docker-build:
+	$(MAKE) -C docker build
+
+docker-start:
+	$(MAKE) -C docker start
+
+docker-stop:
+	$(MAKE) -C docker stop
+
+docker-restart:
+	$(MAKE) -C docker restart
+
+docker-logs:
+	$(MAKE) -C docker logs
+
+docker-status:
+	$(MAKE) -C docker status
+
+docker-shell:
+	$(MAKE) -C docker shell
 
 # Upload EAP-TLS certificates to remote host
 # Usage: make upload-certs CERT_REMOTE_HOST=user@host CERT_CLIENT=./client.crt CERT_KEY=./client.key
@@ -107,7 +106,6 @@ upload-certs:
 # NetworkManager: persistently unmanage WiFi interface
 # Creates a drop-in config so NM ignores the interface across reboots.
 # Usage: sudo make nm-unmanage WIFI_INTERFACE=wlp6s0
-WIFI_INTERFACE ?= wlan0
 NM_CONF_DIR := /etc/NetworkManager/conf.d
 NM_CONF_FILE := $(NM_CONF_DIR)/99-unmanaged-$(WIFI_INTERFACE).conf
 
