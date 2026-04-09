@@ -165,25 +165,25 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 
 | # | Document | Description |
 |---|----------|-------------|
-| 00 | [Architecture](./00_Architecture.md) | System architecture and component overview |
-| 05 | [Structure and Flow](./05_Structure_and_Flow.md) | Repository structure, layers, and end-to-end request flow |
-| 01 | [WiFi Tools](./01_WiFi_Tools.md) | WiFi connection and management tools |
-| 02 | [Connectivity Tools](./02_Connectivity_Tools.md) | Network diagnostics and testing |
-| 03 | [Browser Tools](./03_Browser_Tools.md) | Browser automation for captive portals |
+| 00 | [Architecture](./reference/00_Architecture.md) | System architecture and component overview |
+| 05 | [Docker Netns Isolation](./reference/05_Docker_Netns_Isolation.md) | Docker network namespace isolation for WiFi |
+| 01 | [WiFi Tools](./reference/01_WiFi_Tools.md) | WiFi connection and management tools |
+| 02 | [Connectivity Tools](./reference/02_Connectivity_Tools.md) | Network diagnostics and testing |
+| 03 | [Browser Tools](./reference/03_Browser_Tools.md) | Browser automation for captive portals |
 
 ### Design Documents
 
 | # | Document | Description |
 |---|----------|-------------|
-| 10 | [EAP-TLS Authentication](./10_EAP-TLS_Design.md) | 802.1X certificate authentication design |
-| 11 | [Credential Store](./11_Credential_Store_Design.md) | Certificate storage system design |
-| 30 | [Docker Dev Plan](./30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
+| 10 | [EAP-TLS Authentication](./design/10_EAP-TLS_Design.md) | 802.1X certificate authentication design |
+| 11 | [Credential Store](./design/11_Credential_Store_Design.md) | Certificate storage system design |
+| 30 | [Docker Dev Plan](./plans/30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
 
 ### Operations
 
 | # | Document | Description |
 |---|----------|-------------|
-| 20 | [Troubleshooting](./20_Troubleshooting.md) | Docker and DNS troubleshooting guide |
+| 20 | [Troubleshooting](./operations/20_Troubleshooting.md) | Docker and DNS troubleshooting guide |
 
 ---
 

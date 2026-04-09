@@ -7,7 +7,7 @@
 
 ---
 
-> **Note:** This is a design document. For usage reference, see [01_WiFi_Tools.md](./01_WiFi_Tools.md).
+> **Note:** This is a design document. For usage reference, see [01_WiFi_Tools.md](../reference/01_WiFi_Tools.md).
 
 ---
 
