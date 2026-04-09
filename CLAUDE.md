@@ -25,6 +25,21 @@ When developing with Docker, rebuild the image after code changes:
 npm run build && make docker-build && make docker-stop && sudo make docker-start
 ```
 
+## Testing
+
+Tests use a YAML-driven test framework in `cicd/tests/`. Test cases are defined in `cicd/tests/testcases/`.
+
+```bash
+cd cicd/tests
+npm ci                                          # Install test framework (first time)
+npx tsx src/cli.ts list                         # List available tests
+npx tsx src/cli.ts run --suite build --no-llm   # Run build suite
+npx tsx src/cli.ts run --suite integration --no-llm  # Run integration suite (needs Docker)
+npx tsx src/cli.ts run --no-llm                 # Run all suites
+```
+
+CI is triggered manually via GitHub Actions `workflow_dispatch`.
+
 ## Environment Configuration
 
 Copy `.env.example` to `.env`:

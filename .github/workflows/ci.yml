@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install test framework dependencies
+        run: cd cicd/tests && npm ci
+
+      - name: Build test framework
+        run: cd cicd/tests && npm run build
+
+  test-build:
+    name: "Test: Build"
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install test framework
+        run: cd cicd/tests && npm ci
+
+      - name: Run build tests
+        run: cd cicd/tests && npx tsx src/cli.ts run --suite build --no-llm
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-test-results
+          path: cicd/results/
+
+  test-integration:
+    name: "Test: Integration"
+    needs: test-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install test framework
+        run: cd cicd/tests && npm ci
+
+      - name: Run integration tests
+        run: cd cicd/tests && npx tsx src/cli.ts run --suite integration --no-llm
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: cicd/results/
