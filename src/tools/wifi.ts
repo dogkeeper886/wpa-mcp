@@ -251,7 +251,7 @@ export function registerWifiTools(
         if (reached && dhcpManager) {
           // Connection successful, get IP address via DHCP
           await dhcpManager.start(targetIface, macConfig?.mode);
-          const ipAddress = await dhcpManager.waitForIp(10000);
+          const ipAddress = await dhcpManager.waitForIp(30000);
 
           // If DHCP timeout, re-check current status for late-arriving IP
           let finalIpAddress = ipAddress;
@@ -431,7 +431,7 @@ export function registerWifiTools(
         if (reached && dhcpManager) {
           // Connection successful, get IP address via DHCP
           await dhcpManager.start(targetIface, macConfig?.mode);
-          const ipAddress = await dhcpManager.waitForIp(10000);
+          const ipAddress = await dhcpManager.waitForIp(30000);
 
           // If DHCP timeout, re-check current status for late-arriving IP
           let finalIpAddress = ipAddress;
@@ -724,7 +724,7 @@ export function registerWifiTools(
         if (reached && dhcpManager) {
           // Connection successful, get IP address via DHCP
           await dhcpManager.start(targetIface);
-          const ipAddress = await dhcpManager.waitForIp(10000);
+          const ipAddress = await dhcpManager.waitForIp(30000);
 
           // If DHCP timeout, re-check current status for late-arriving IP
           let finalIpAddress = ipAddress;
@@ -1022,7 +1022,7 @@ export function registerWifiTools(
         if (reached && dhcpManager) {
           // Connection successful, get IP address via DHCP
           await dhcpManager.start(targetIface, macConfig?.mode);
-          const ipAddress = await dhcpManager.waitForIp(10000);
+          const ipAddress = await dhcpManager.waitForIp(30000);
 
           // If DHCP timeout, re-check current status for late-arriving IP
           let finalIpAddress = ipAddress;
@@ -1266,7 +1266,7 @@ export function registerWifiTools(
         if (reached && dhcpManager) {
           // Connection successful, get IP address via DHCP
           await dhcpManager.start(targetIface, mac_mode as MacAddressMode | undefined);
-          const ipAddress = await dhcpManager.waitForIp(10000);
+          const ipAddress = await dhcpManager.waitForIp(30000);
 
           // If DHCP timeout, re-check current status for late-arriving IP
           let finalIpAddress = ipAddress;
