@@ -111,6 +111,40 @@ See [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) for the full 
 
 ---
 
+## EAP-TLS Certificates
+
+To use EAP-TLS or Hotspot 2.0, place certificate files in the `certs/` directory before building the Docker image. They are baked into the image and auto-imported on each container startup.
+
+### File naming convention
+
+```
+certs/
+├── <identity>_crt.pem          # Client certificate (required)
+├── <identity>_prv.pem          # Private key (required)
+├── radius.*_crt.pem | ca*.pem  # CA certificate (optional)
+```
+
+Example for identity `user@example.com`:
+
+```
+certs/
+├── user@example.com_crt.pem
+├── user@example.com_prv.pem
+└── ca.pem
+```
+
+### Workflow
+
+1. Place PEM files in `certs/`
+2. Rebuild the image: `make docker-build`
+3. Start the container: `sudo make docker-start`
+4. The entrypoint auto-imports certs into the credential store (idempotent)
+5. Use `wifi_connect_tls` or `wifi_hs20_connect` to connect
+
+Credentials can also be added at runtime via the `credential_store` MCP tool, but these are ephemeral and lost when the container stops.
+
+---
+
 ## MCP Client Configuration
 
 ### Claude Code
@@ -161,7 +195,9 @@ Claude: [calls wifi_get_debug_logs with filter="eap"]
 |------|-------------|
 | `wifi_scan` | Scan for available networks (returns SSID, signal, security type) |
 | `wifi_connect` | Connect to WPA-PSK or open network |
-| `wifi_connect_eap` | Connect to WPA2-Enterprise/802.1X network (PEAP, TTLS, TLS) |
+| `wifi_connect_eap` | Connect to WPA2-Enterprise/802.1X network (PEAP, TTLS) |
+| `wifi_connect_tls` | Connect using EAP-TLS with client certificate |
+| `wifi_hs20_connect` | Connect to Hotspot 2.0 / Passpoint network |
 | `wifi_disconnect` | Disconnect from current network |
 | `wifi_status` | Get connection status (wpa_state, ssid, ip_address, EAP info) |
 | `wifi_list_networks` | List saved networks with flags (CURRENT, TEMP-DISABLED) |
@@ -182,6 +218,15 @@ Claude: [calls wifi_get_debug_logs with filter="eap"]
 | `browser_open` | Open URL in default browser |
 | `browser_run_script` | Run a Playwright automation script for captive portals |
 | `browser_list_scripts` | List available scripts in `~/.config/wpa-mcp/scripts/` |
+
+### Credential Management
+
+| Tool | Description |
+|------|-------------|
+| `credential_store` | Store EAP-TLS client certificate and private key |
+| `credential_list` | List stored credentials |
+| `credential_get` | Get credential details and certificate info |
+| `credential_delete` | Delete a stored credential |
 
 ### Network Connectivity
 
