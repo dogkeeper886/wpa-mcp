@@ -1,0 +1,36 @@
+id: TC-INT-004
+name: Credential Tools Registered
+suite: integration
+priority: 4
+timeout: 30000
+dependencies:
+  - TC-INT-002
+tags: [integration, credentials, tools]
+
+steps:
+  - name: Start container
+    command: >
+      docker run --rm -d
+      --name wpa-mcp-ci
+      -p 3002:3000
+      wpa-mcp:ci
+    timeout: 10000
+
+  - name: Wait for server startup
+    command: sleep 3
+
+  - name: Verify credential tools registered
+    command: npx tsx cicd/tests/src/mcp-client.ts list-tools
+    expectPatterns:
+      - "credential_store"
+      - "credential_list"
+      - "credential_get"
+      - "credential_delete"
+
+  - name: Stop container
+    command: docker rm -f wpa-mcp-ci
+
+criteria: |
+  Verify all credential management MCP tools are registered:
+  - credential_store, credential_list, credential_get, credential_delete are present
+  - These tools enable EAP-TLS certificate management

@@ -1,0 +1,25 @@
+id: TC-BUILD-001
+name: Project Build Verification
+suite: build
+priority: 1
+timeout: 120000
+dependencies: []
+tags: [build, compile]
+
+steps:
+  - name: Install dependencies
+    command: npm ci
+    timeout: 60000
+    rejectPatterns:
+      - "npm error"
+
+  - name: TypeScript compilation
+    command: npm run build
+    timeout: 60000
+    rejectPatterns:
+      - "error TS"
+
+criteria: |
+  Verify the wpa-mcp project builds successfully:
+  - npm ci installs all dependencies without errors
+  - TypeScript compiles to dist/ without type errors

@@ -1,0 +1,22 @@
+id: TC-BUILD-002
+name: Docker Image Build
+suite: build
+priority: 2
+timeout: 300000
+dependencies:
+  - TC-BUILD-001
+tags: [build, docker]
+
+steps:
+  - name: Build Docker image
+    command: docker build -t wpa-mcp:ci -f docker/Dockerfile .
+    timeout: 300000
+    rejectPatterns:
+      - "ERROR"
+
+criteria: |
+  Verify the Docker image builds successfully:
+  - Multi-stage build completes (builder + runtime)
+  - All system dependencies install (wpasupplicant, isc-dhcp-client, iproute2)
+  - TypeScript build output is copied to runtime image
+  - Image is tagged as wpa-mcp:ci
