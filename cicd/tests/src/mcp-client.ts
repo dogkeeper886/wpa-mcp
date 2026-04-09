@@ -1,37 +1,63 @@
 #!/usr/bin/env npx tsx
 /**
- * Lightweight MCP client CLI for integration testing.
- * Spawns the MCP server, calls a tool, prints the result as JSON.
+ * MCP client CLI for integration testing via Streamable HTTP transport.
  *
- * Usage: npx tsx cicd/tests/src/mcp-client.ts <tool_name> '<json_args>'
+ * Commands:
+ *   list-tools                    List all registered tools
+ *   call-tool <name> [json_args]  Call a tool and print result
  *
- * Configure the server command via MCP_SERVER_COMMAND env var.
- * Default: node dist/mcpServer.js
+ * Environment:
+ *   MCP_SERVER_URL  Server URL (default: http://localhost:3002/mcp)
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ListToolsResultSchema, CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const [toolName, argsJson] = process.argv.slice(2);
-if (!toolName) {
-  console.error('Usage: mcp-client.ts <tool_name> [json_args]');
+const serverUrl = process.env.MCP_SERVER_URL || 'http://localhost:3002/mcp';
+const [command, ...rest] = process.argv.slice(2);
+
+if (!command) {
+  console.error('Usage: mcp-client.ts <list-tools|call-tool> [args...]');
   process.exit(1);
 }
 
-const args = argsJson ? JSON.parse(argsJson) : {};
-
-const serverCommand = process.env.MCP_SERVER_COMMAND || 'node dist/mcpServer.js';
-const [cmd, ...cmdArgs] = serverCommand.split(' ');
-
-const transport = new StdioClientTransport({
-  command: cmd,
-  args: cmdArgs,
-  env: { ...process.env } as Record<string, string>,
-});
-
+const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
 const client = new Client({ name: 'test-client', version: '1.0.0' });
-await client.connect(transport);
 
-const result = await client.callTool({ name: toolName, arguments: args });
-console.log(JSON.stringify(result, null, 2));
+try {
+  await client.connect(transport);
 
-await client.close();
+  switch (command) {
+    case 'list-tools': {
+      const result = await client.request(
+        { method: 'tools/list', params: {} },
+        ListToolsResultSchema
+      );
+      // Output tool names as JSON array for easy pattern matching
+      const toolNames = result.tools.map(t => t.name);
+      console.log(JSON.stringify({ tools: toolNames }, null, 2));
+      break;
+    }
+
+    case 'call-tool': {
+      const [toolName, argsJson] = rest;
+      if (!toolName) {
+        console.error('Usage: mcp-client.ts call-tool <tool_name> [json_args]');
+        process.exit(1);
+      }
+      const args = argsJson ? JSON.parse(argsJson) : {};
+      const result = await client.request(
+        { method: 'tools/call', params: { name: toolName, arguments: args } },
+        CallToolResultSchema
+      );
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    }
+
+    default:
+      console.error(`Unknown command: ${command}`);
+      process.exit(1);
+  }
+} finally {
+  await transport.close();
+}

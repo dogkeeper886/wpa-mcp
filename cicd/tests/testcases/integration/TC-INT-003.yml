@@ -20,11 +20,7 @@ steps:
     command: sleep 3
 
   - name: Verify WiFi tools registered
-    command: >
-      curl -sf -X POST http://localhost:3002/mcp
-      -H "Content-Type: application/json"
-      -H "Accept: application/json, text/event-stream"
-      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+    command: npx tsx cicd/tests/src/mcp-client.ts list-tools
     expectPatterns:
       - "wifi_scan"
       - "wifi_connect"
@@ -32,6 +28,7 @@ steps:
       - "wifi_status"
       - "wifi_connect_eap"
       - "wifi_connect_tls"
+      - "wifi_hs20_connect"
 
   - name: Stop container
     command: docker rm -f wpa-mcp-ci
@@ -39,4 +36,4 @@ steps:
 criteria: |
   Verify all WiFi MCP tools are registered and available:
   - wifi_scan, wifi_connect, wifi_disconnect, wifi_status are present
-  - wifi_connect_eap and wifi_connect_tls are present for enterprise auth
+  - wifi_connect_eap, wifi_connect_tls, wifi_hs20_connect for enterprise auth

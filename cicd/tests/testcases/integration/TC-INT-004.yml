@@ -20,11 +20,7 @@ steps:
     command: sleep 3
 
   - name: Verify credential tools registered
-    command: >
-      curl -sf -X POST http://localhost:3002/mcp
-      -H "Content-Type: application/json"
-      -H "Accept: application/json, text/event-stream"
-      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+    command: npx tsx cicd/tests/src/mcp-client.ts list-tools
     expectPatterns:
       - "credential_store"
       - "credential_list"
