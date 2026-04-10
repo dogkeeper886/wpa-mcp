@@ -252,7 +252,7 @@ to matching networks.
 - Verify realm/domain match what the network advertises via ANQP
 
 **Related:**
-- [12_HS20_Design.md](./12_HS20_Design.md) - Detailed HS20 design document
+- [12_HS20_Design.md](../design/12_HS20_Design.md) - Detailed HS20 design document
 
 ---
 
@@ -737,6 +737,6 @@ Delete a stored credential.
 ## Related Documents
 
 - [00_Architecture.md](./00_Architecture.md) - System architecture
-- [10_EAP-TLS_Design.md](./10_EAP-TLS_Design.md) - EAP-TLS design
-- [11_Credential_Store_Design.md](./11_Credential_Store_Design.md) - Credential storage design
-- [12_HS20_Design.md](./12_HS20_Design.md) - Hotspot 2.0 (Passpoint) design
+- [10_EAP-TLS_Design.md](../design/10_EAP-TLS_Design.md) - EAP-TLS design
+- [11_Credential_Store_Design.md](../design/11_Credential_Store_Design.md) - Credential storage design
+- [12_HS20_Design.md](../design/12_HS20_Design.md) - Hotspot 2.0 (Passpoint) design

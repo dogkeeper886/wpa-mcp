@@ -2,7 +2,7 @@
 
 **Status:** Complete  
 **Created:** 2026-01-14  
-**Related:** [01_WiFi_Tools.md](./01_WiFi_Tools.md), [10_EAP-TLS_Design.md](./10_EAP-TLS_Design.md)
+**Related:** [01_WiFi_Tools.md](../reference/01_WiFi_Tools.md), [10_EAP-TLS_Design.md](./10_EAP-TLS_Design.md)
 
 ---
 
@@ -342,6 +342,6 @@ Look for:
 
 ## Related Documents
 
-- [01_WiFi_Tools.md](./01_WiFi_Tools.md) - WiFi tool reference
+- [01_WiFi_Tools.md](../reference/01_WiFi_Tools.md) - WiFi tool reference
 - [10_EAP-TLS_Design.md](./10_EAP-TLS_Design.md) - EAP-TLS design
 - [11_Credential_Store_Design.md](./11_Credential_Store_Design.md) - Credential storage

@@ -338,4 +338,4 @@ sudo make test-integration TEST_SSID="MyNetwork" TEST_PSK="password" WIFI_INTERF
 ## Document index
 
 - [00 Architecture](./00_Architecture.md) – Component responsibilities and details
-- [docs README](./README.md) – User flow, features, quick start
+- [docs README](../README.md) – User flow, features, quick start
