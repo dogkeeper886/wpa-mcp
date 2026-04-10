@@ -184,7 +184,11 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 
 | # | Document | Description |
 |---|----------|-------------|
-| | *(Use `/user-stories` to generate)* | Stories with acceptance criteria and test traceability |
+| 40 | [WiFi Stories](./user-stories/40_WiFi_Stories.md) | WiFi connection, management, and diagnostics (13 stories) |
+| 41 | [Connectivity Stories](./user-stories/41_Connectivity_Stories.md) | Network diagnostics — ping, DNS, internet, captive portal (4 stories) |
+| 42 | [Browser Stories](./user-stories/42_Browser_Stories.md) | Browser automation for captive portals (3 stories) |
+| 43 | [Credential Stories](./user-stories/43_Credential_Stories.md) | EAP-TLS certificate management (4 stories) |
+| 44 | [Cross-Cutting Stories](./user-stories/44_Cross_Cutting_Stories.md) | MAC privacy, Docker isolation (3 stories) |
 
 ### Plans
 
