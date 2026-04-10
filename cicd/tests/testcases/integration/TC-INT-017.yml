@@ -1,0 +1,34 @@
+id: TC-INT-017
+name: WiFi Disconnect When Not Connected
+suite: integration
+priority: 17
+timeout: 30000
+dependencies:
+  - TC-INT-003
+tags: [integration, wifi, disconnect, US-WIFI-007]
+
+steps:
+  - name: Start container
+    command: >
+      docker run --rm -d
+      --name wpa-mcp-ci
+      -p 3002:3000
+      wpa-mcp:ci
+    timeout: 10000
+
+  - name: Wait for server startup
+    command: sleep 3
+
+  - name: Disconnect when not connected
+    command: >
+      npx tsx cicd/tests/src/mcp-client.ts call-tool wifi_disconnect '{}'
+    expectPatterns:
+      - '"content"'
+
+  - name: Stop container
+    command: docker rm -f wpa-mcp-ci
+
+criteria: |
+  Verify wifi_disconnect is idempotent when not connected:
+  - Returns a response without crashing
+  - Covers US-WIFI-007 AC4

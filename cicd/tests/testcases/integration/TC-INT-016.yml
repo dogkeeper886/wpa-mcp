@@ -1,0 +1,35 @@
+id: TC-INT-016
+name: Browser Run Script Not Found
+suite: integration
+priority: 16
+timeout: 30000
+dependencies:
+  - TC-INT-006
+tags: [integration, browser, error, US-BROW-002]
+
+steps:
+  - name: Start container
+    command: >
+      docker run --rm -d
+      --name wpa-mcp-ci
+      -p 3002:3000
+      wpa-mcp:ci
+    timeout: 10000
+
+  - name: Wait for server startup
+    command: sleep 3
+
+  - name: Run non-existent script
+    command: >
+      npx tsx cicd/tests/src/mcp-client.ts call-tool browser_run_script
+      '{"script_name":"does-not-exist"}'
+    expectPatterns:
+      - '"isError":true'
+
+  - name: Stop container
+    command: docker rm -f wpa-mcp-ci
+
+criteria: |
+  Verify browser_run_script returns error for non-existent script:
+  - Response has isError=true
+  - Covers US-BROW-002 AC5

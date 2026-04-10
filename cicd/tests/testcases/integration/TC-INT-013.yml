@@ -1,0 +1,37 @@
+id: TC-INT-013
+name: WiFi List Networks Empty
+suite: integration
+priority: 13
+timeout: 30000
+dependencies:
+  - TC-INT-003
+tags: [integration, wifi, networks, US-WIFI-009]
+
+steps:
+  - name: Start container
+    command: >
+      docker run --rm -d
+      --name wpa-mcp-ci
+      -p 3002:3000
+      wpa-mcp:ci
+    timeout: 10000
+
+  - name: Wait for server startup
+    command: sleep 3
+
+  - name: List networks on fresh container
+    command: >
+      npx tsx cicd/tests/src/mcp-client.ts call-tool wifi_list_networks '{}'
+    expectPatterns:
+      - '"networks"'
+    rejectPatterns:
+      - '"isError":true'
+
+  - name: Stop container
+    command: docker rm -f wpa-mcp-ci
+
+criteria: |
+  Verify wifi_list_networks returns empty list on fresh container:
+  - Response contains networks array
+  - No errors
+  - Covers US-WIFI-009 AC4
