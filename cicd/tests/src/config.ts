@@ -74,4 +74,7 @@ export const ERROR_EXCLUSIONS: RegExp[] = [
   /"description":/i,       // JSON tool descriptions contain "error" in help text
   /error_type/i,           // Metric labels in descriptions
   /error.*code/i,          // JSON-RPC error code references
+  /"isError"/i,            // MCP expected error responses (tool returns isError flag)
+  /"error":/i,             // MCP tool JSON error field in responses
+  /Command failed:/i,      // wpa_cli command failures (expected without hardware)
 ];

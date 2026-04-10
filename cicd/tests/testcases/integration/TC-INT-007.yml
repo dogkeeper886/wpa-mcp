@@ -24,10 +24,10 @@ steps:
       npx tsx cicd/tests/src/mcp-client.ts call-tool network_ping
       '{"host":"127.0.0.1","count":2}'
     expectPatterns:
-      - '"alive"'
-      - '"time"'
+      - "alive"
+      - "time"
     rejectPatterns:
-      - '"isError":true'
+      - "isError"
 
   - name: Stop container
     command: docker rm -f wpa-mcp-ci

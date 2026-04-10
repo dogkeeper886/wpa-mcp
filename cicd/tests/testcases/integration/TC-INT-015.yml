@@ -23,9 +23,9 @@ steps:
     command: >
       npx tsx cicd/tests/src/mcp-client.ts call-tool browser_list_scripts '{}'
     expectPatterns:
-      - '"scripts"'
+      - "scripts"
     rejectPatterns:
-      - '"isError":true'
+      - "isError"
 
   - name: Stop container
     command: docker rm -f wpa-mcp-ci

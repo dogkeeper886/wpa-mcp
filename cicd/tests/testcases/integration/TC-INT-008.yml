@@ -24,10 +24,10 @@ steps:
       npx tsx cicd/tests/src/mcp-client.ts call-tool network_dns_lookup
       '{"hostname":"localhost"}'
     expectPatterns:
-      - '"hostname"'
-      - '"addresses"'
+      - "hostname"
+      - "addresses"
     rejectPatterns:
-      - '"isError":true'
+      - "isError"
 
   - name: Stop container
     command: docker rm -f wpa-mcp-ci

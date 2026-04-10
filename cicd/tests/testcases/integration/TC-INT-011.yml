@@ -24,7 +24,7 @@ steps:
       npx tsx cicd/tests/src/mcp-client.ts call-tool credential_delete
       '{"id":"does-not-exist"}'
     expectPatterns:
-      - '"isError":true'
+      - "isError"
 
   - name: Stop container
     command: docker rm -f wpa-mcp-ci

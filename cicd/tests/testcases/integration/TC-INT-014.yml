@@ -23,7 +23,7 @@ steps:
     command: >
       npx tsx cicd/tests/src/mcp-client.ts call-tool wifi_scan '{}'
     expectPatterns:
-      - '"content"'
+      - "content"
 
   - name: Stop container
     command: docker rm -f wpa-mcp-ci

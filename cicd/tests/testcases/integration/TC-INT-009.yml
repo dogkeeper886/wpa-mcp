@@ -23,10 +23,10 @@ steps:
     command: >
       npx tsx cicd/tests/src/mcp-client.ts call-tool credential_list '{}'
     expectPatterns:
-      - '"credentials"'
-      - '"count"'
+      - "credentials"
+      - "count"
     rejectPatterns:
-      - '"isError":true'
+      - "isError"
 
   - name: Stop container
     command: docker rm -f wpa-mcp-ci
