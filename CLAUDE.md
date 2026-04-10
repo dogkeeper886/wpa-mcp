@@ -212,11 +212,36 @@ The server can run wpa_supplicant as a managed subprocess (WpaDaemon) or use an 
 
 ### New Feature Guidelines
 
-#### Design Documents Required
-- Before implementing a new feature, create a design document in `/docs`
-- Document the original design intent, architecture decisions, and rationale
-- This preserves context for future maintenance and prevents design drift
-- Keep design docs simple: problem statement, proposed solution, key decisions
+#### Feature Workflow: PRD -> User Stories -> Test Cases
+
+Before implementing a new feature, follow this workflow:
+
+1. **`/prd`** — Create a design doc in `docs/design/` (numbering: 10-19)
+   - Captures goal, user flow, architecture, API, design decisions
+   - Follows pattern of existing design docs (10_EAP-TLS, 11_Credential_Store, 12_HS20)
+
+2. **`/user-stories`** — Create user stories in `docs/user-stories/` (numbering: 40-49)
+   - Derives acceptance criteria from the PRD or source code
+   - Maps each AC to a test case ID (existing or TBD)
+   - Story IDs: `US-WIFI-xxx`, `US-CRED-xxx`, `US-NET-xxx`, `US-BROW-xxx`
+
+3. **`/ci-testcase`** — Create YAML test cases in `cicd/tests/testcases/`
+   - Tags match user story tags for cross-referencing
+   - Test IDs referenced back in the user story traceability matrix
+
+This chain ensures every feature has documented rationale, testable criteria, and actual test coverage.
+
+#### Documentation Folder Structure
+
+```
+docs/
+  README.md                    # Master index
+  reference/    (00-09)        # Architecture + tool reference docs
+  design/       (10-19)        # PRDs and design decision records
+  operations/   (20-29)        # Troubleshooting and ops guides
+  plans/        (30-39)        # Development roadmaps
+  user-stories/ (40-49)        # User stories with test traceability
+```
 
 ### What to Look For
 

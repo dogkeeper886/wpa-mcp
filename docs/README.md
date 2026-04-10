@@ -177,6 +177,19 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 |---|----------|-------------|
 | 10 | [EAP-TLS Authentication](./design/10_EAP-TLS_Design.md) | 802.1X certificate authentication design |
 | 11 | [Credential Store](./design/11_Credential_Store_Design.md) | Certificate storage system design |
+| 12 | [HS20 / Passpoint](./design/12_HS20_Design.md) | Hotspot 2.0 auto-discovery design |
+| — | [MAC Address Restoration](./design/mac-address-restoration.md) | Docker MAC address decision record |
+
+### User Stories
+
+| # | Document | Description |
+|---|----------|-------------|
+| | *(Use `/user-stories` to generate)* | Stories with acceptance criteria and test traceability |
+
+### Plans
+
+| # | Document | Description |
+|---|----------|-------------|
 | 30 | [Docker Dev Plan](./plans/30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
 
 ### Operations
