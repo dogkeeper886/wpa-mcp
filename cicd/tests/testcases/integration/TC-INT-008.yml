@@ -1,0 +1,38 @@
+id: TC-INT-008
+name: DNS Lookup
+suite: integration
+priority: 8
+timeout: 30000
+dependencies:
+  - TC-INT-005
+tags: [integration, connectivity, dns, US-NET-004]
+
+steps:
+  - name: Start container
+    command: >
+      docker run --rm -d
+      --name wpa-mcp-ci
+      -p 3002:3000
+      wpa-mcp:ci
+    timeout: 10000
+
+  - name: Wait for server startup
+    command: sleep 3
+
+  - name: DNS lookup localhost
+    command: >
+      npx tsx cicd/tests/src/mcp-client.ts call-tool network_dns_lookup
+      '{"hostname":"localhost"}'
+    expectPatterns:
+      - '"hostname"'
+      - '"addresses"'
+    rejectPatterns:
+      - '"isError":true'
+
+  - name: Stop container
+    command: docker rm -f wpa-mcp-ci
+
+criteria: |
+  Verify network_dns_lookup tool works inside Docker container:
+  - DNS lookup for localhost returns addresses array
+  - Covers US-NET-004 AC1

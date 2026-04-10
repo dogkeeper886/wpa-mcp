@@ -1,0 +1,35 @@
+id: TC-INT-011
+name: Credential Delete Not Found
+suite: integration
+priority: 11
+timeout: 30000
+dependencies:
+  - TC-INT-004
+tags: [integration, credentials, error, US-CRED-004]
+
+steps:
+  - name: Start container
+    command: >
+      docker run --rm -d
+      --name wpa-mcp-ci
+      -p 3002:3000
+      wpa-mcp:ci
+    timeout: 10000
+
+  - name: Wait for server startup
+    command: sleep 3
+
+  - name: Delete non-existent credential
+    command: >
+      npx tsx cicd/tests/src/mcp-client.ts call-tool credential_delete
+      '{"id":"does-not-exist"}'
+    expectPatterns:
+      - '"isError":true'
+
+  - name: Stop container
+    command: docker rm -f wpa-mcp-ci
+
+criteria: |
+  Verify credential_delete returns error for non-existent credential:
+  - Response has isError=true
+  - Covers US-CRED-004 AC3
