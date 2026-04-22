@@ -1,7 +1,7 @@
 # wpa-mcp Makefile
 # Development build and Docker deployment
 
-.PHONY: build clean help upload-certs nm-unmanage nm-restore docker-build docker-start docker-stop docker-restart docker-logs docker-status docker-shell
+.PHONY: build clean help upload-certs nm-unmanage nm-restore docker-build docker-start docker-stop docker-restart docker-logs docker-status docker-shell install-systemd uninstall-systemd
 
 # Load .env if exists
 -include .env
@@ -31,6 +31,10 @@ help:
 	@echo "Network setup:"
 	@echo "  nm-unmanage      - Persistently unmanage WiFi interface from NetworkManager"
 	@echo "  nm-restore       - Restore NetworkManager management of WiFi interface"
+	@echo ""
+	@echo "systemd daemon:"
+	@echo "  install-systemd    - Install /etc/systemd/system/wpa-mcp.service and wrapper"
+	@echo "  uninstall-systemd  - Remove the service and wrapper"
 	@echo ""
 	@echo "Certificate upload (configure in .env or pass as args):"
 	@echo "  upload-certs CERT_REMOTE_HOST=user@host \\"
@@ -102,6 +106,45 @@ upload-certs:
 	@if [ -n "$(CERT_CA)" ] && [ -f "$(CERT_CA)" ]; then \
 		echo "  ca_cert_path: $(CERT_REMOTE_DIR)/ca.crt"; \
 	fi
+
+# systemd: install daemon so wpa-mcp starts automatically on boot.
+# Usage: sudo make install-systemd [WIFI_INTERFACE=wlp0s20f3]
+SYSTEMD_UNIT := /etc/systemd/system/wpa-mcp.service
+SYSTEMD_WRAPPER := /usr/local/sbin/wpa-mcp-start
+
+install-systemd:
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo "Error: must run as root"; \
+		echo "Usage: sudo make install-systemd [WIFI_INTERFACE=$(WIFI_INTERFACE)]"; \
+		exit 1; \
+	fi
+	install -m 0755 deploy/wpa-mcp-start $(SYSTEMD_WRAPPER)
+	install -m 0644 deploy/wpa-mcp.service $(SYSTEMD_UNIT)
+	@if [ -n "$(WIFI_INTERFACE)" ] && [ "$(WIFI_INTERFACE)" != "wlan0" ]; then \
+		sed -i "s|^Environment=WIFI_INTERFACE=.*|Environment=WIFI_INTERFACE=$(WIFI_INTERFACE)|" $(SYSTEMD_UNIT); \
+		echo "Set WIFI_INTERFACE=$(WIFI_INTERFACE) in $(SYSTEMD_UNIT)"; \
+	fi
+	systemctl daemon-reload
+	@echo ""
+	@echo "Installed:"
+	@echo "  $(SYSTEMD_WRAPPER)"
+	@echo "  $(SYSTEMD_UNIT)"
+	@echo ""
+	@echo "Enable on boot and start now:"
+	@echo "  sudo systemctl enable --now wpa-mcp"
+
+uninstall-systemd:
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo "Error: must run as root"; \
+		echo "Usage: sudo make uninstall-systemd"; \
+		exit 1; \
+	fi
+	-systemctl disable --now wpa-mcp.service 2>/dev/null
+	-rm -f $(SYSTEMD_UNIT) $(SYSTEMD_WRAPPER)
+	systemctl daemon-reload
+	@echo "Removed $(SYSTEMD_UNIT) and $(SYSTEMD_WRAPPER)"
+	@echo "Note: Docker volume 'wpa-mcp-data' is preserved. Remove with:"
+	@echo "  docker volume rm wpa-mcp-data"
 
 # NetworkManager: persistently unmanage WiFi interface
 # Creates a drop-in config so NM ignores the interface across reboots.

@@ -109,6 +109,7 @@ docker run --rm -d \
   --cap-add NET_ADMIN \
   --cap-add NET_RAW \
   -p "${HOST_PORT}:3000" \
+  -v "${WPA_MCP_VOLUME:-wpa-mcp-data}:/home/node/.config/wpa-mcp" \
   -e "WIFI_INTERFACE=${IFACE}" \
   -e "WPA_DEBUG_LEVEL=${DEBUG_LEVEL}" \
   -e "PORT=3000" \

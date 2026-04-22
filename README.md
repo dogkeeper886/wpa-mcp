@@ -107,6 +107,53 @@ make docker-stop
 sudo make nm-restore WIFI_INTERFACE=wlp6s0
 ```
 
+### Auto-start on boot (systemd)
+
+To make wpa-mcp come up automatically on every reboot, install the systemd unit:
+
+```bash
+sudo make install-systemd WIFI_INTERFACE=wlp6s0
+sudo systemctl enable --now wpa-mcp
+```
+
+This installs:
+
+| Path | Purpose |
+|------|---------|
+| `/usr/local/sbin/wpa-mcp-start` | Wrapper that does `docker run` + `iw phy set netns` + health-wait |
+| `/etc/systemd/system/wpa-mcp.service` | `Type=oneshot, RemainAfterExit=yes`, `After=docker.service` |
+
+Uninstall:
+
+```bash
+sudo make uninstall-systemd
+```
+
+The wrapper script lives in `/usr/local/sbin/` (no dependency on any user home directory), so it works even when `/home` is not yet available at boot.
+
+**Container crash recovery:** The service is `Type=oneshot, RemainAfterExit=yes`, which means systemd tracks the wrapper's exit, not the container itself. If the container dies at runtime (docker daemon crash, OOM kill), systemd will continue to report the unit as `active (exited)` but nothing is running. Recover with:
+
+```bash
+sudo systemctl restart wpa-mcp
+```
+
+`.env` at the project root is read by `make docker-start` only. The systemd install reads from the `Environment=` lines in `/etc/systemd/system/wpa-mcp.service` — edit that file (and `systemctl daemon-reload`) to change values for the daemon path.
+
+### Persistent credential store
+
+When started via either `make docker-start` or the systemd unit, a Docker named volume `wpa-mcp-data` is mounted at `/home/node/.config/wpa-mcp` inside the container. Credentials added at runtime via the `credential_store` MCP tool persist across container restarts, image rebuilds, and host reboots.
+
+Baked certs under `certs/` are separate: they are copied into the image at build time and re-imported (idempotently) on every container start.
+
+```bash
+# Inspect the volume
+docker volume inspect wpa-mcp-data
+
+# Wipe stored credentials (container must be stopped first)
+sudo systemctl stop wpa-mcp
+docker volume rm wpa-mcp-data
+```
+
 See [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) for the full netns architecture and route trace.
 
 ---
