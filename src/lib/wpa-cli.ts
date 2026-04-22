@@ -35,28 +35,79 @@ export class WpaCli {
     }
 
     // Poll for scan results instead of fixed wait
-    const { found, output } = await this.waitForScanResults(timeoutMs);
+    const { found } = await this.waitForScanResults(timeoutMs);
 
     if (!found) {
       // Return empty array if no results found (not an error, just no networks)
       return [];
     }
 
-    // Parse results
-    const lines = output.split("\n").slice(1); // Skip header
+    // Fetch via paginated BSS ranges. wpa_supplicant's control-interface reply
+    // buffer (~4 KB) truncates the monolithic `scan_results` output at roughly
+    // 55 BSSes, silently dropping nearby APs in dense RF environments.
+    return this.fetchBssEntries();
+  }
 
-    return lines
-      .filter((line) => line.trim())
-      .map((line) => {
-        const parts = line.split("\t");
-        return {
-          bssid: parts[0] || "",
-          frequency: parseInt(parts[1] || "0", 10),
-          signal: parseInt(parts[2] || "0", 10),
-          flags: parts[3] || "",
-          ssid: parts[4] || "",
-        };
-      });
+  /**
+   * Fetch every BSS from wpa_supplicant's scan cache by paging over internal
+   * BSS ids with `BSS RANGE=start-end`. Avoids the ~4 KB truncation that
+   * affects `scan_results`.
+   */
+  private async fetchBssEntries(): Promise<Network[]> {
+    const MASK = "0x1887"; // bssid + freq + level + flags + ssid
+    const CHUNK = 20; // ids per request; keeps each reply well under buffer cap
+
+    const lastId = this.readBssId(await this.run(`bss LAST MASK=${MASK}`));
+    if (lastId === null) {
+      return [];
+    }
+    const firstId =
+      this.readBssId(await this.run(`bss FIRST MASK=${MASK}`)) ?? 0;
+
+    const networks: Network[] = [];
+    for (let start = firstId; start <= lastId; start += CHUNK) {
+      const end = Math.min(start + CHUNK - 1, lastId);
+      const output = await this.run(`bss RANGE=${start}-${end} MASK=${MASK}`);
+      if (!output) continue;
+      networks.push(...this.parseBssBlocks(output));
+    }
+    return networks;
+  }
+
+  private readBssId(output: string): number | null {
+    const match = output.match(/^id=(\d+)/m);
+    return match ? parseInt(match[1], 10) : null;
+  }
+
+  private parseBssBlocks(output: string): Network[] {
+    const networks: Network[] = [];
+    let current: Record<string, string> = {};
+
+    const flush = () => {
+      if (current.bssid) {
+        networks.push({
+          bssid: current.bssid,
+          frequency: parseInt(current.freq || "0", 10),
+          signal: parseInt(current.level || "0", 10),
+          flags: current.flags || "",
+          ssid: current.ssid || "",
+        });
+      }
+      current = {};
+    };
+
+    for (const line of output.split("\n")) {
+      if (line.startsWith("id=") && Object.keys(current).length > 0) {
+        flush();
+      }
+      const eq = line.indexOf("=");
+      if (eq > 0) {
+        current[line.slice(0, eq)] = line.slice(eq + 1);
+      }
+    }
+    flush();
+
+    return networks;
   }
 
   /**
