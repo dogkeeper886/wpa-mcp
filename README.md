@@ -131,6 +131,14 @@ sudo make uninstall-systemd
 
 The wrapper script lives in `/usr/local/sbin/` (no dependency on any user home directory), so it works even when `/home` is not yet available at boot.
 
+**Container crash recovery:** The service is `Type=oneshot, RemainAfterExit=yes`, which means systemd tracks the wrapper's exit, not the container itself. If the container dies at runtime (docker daemon crash, OOM kill), systemd will continue to report the unit as `active (exited)` but nothing is running. Recover with:
+
+```bash
+sudo systemctl restart wpa-mcp
+```
+
+`.env` at the project root is read by `make docker-start` only. The systemd install reads from the `Environment=` lines in `/etc/systemd/system/wpa-mcp.service` — edit that file (and `systemctl daemon-reload`) to change values for the daemon path.
+
 ### Persistent credential store
 
 When started via either `make docker-start` or the systemd unit, a Docker named volume `wpa-mcp-data` is mounted at `/home/node/.config/wpa-mcp` inside the container. Credentials added at runtime via the `credential_store` MCP tool persist across container restarts, image rebuilds, and host reboots.

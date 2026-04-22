@@ -21,6 +21,13 @@ DEBUG_LEVEL="${WPA_DEBUG_LEVEL:-2}"
 VOLUME="${WPA_MCP_VOLUME:-wpa-mcp-data}"
 CONTAINER="wpa-mcp"
 
+for cmd in docker iw curl ip; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "error: required command '$cmd' not found on PATH" >&2
+    exit 1
+  fi
+done
+
 # On systemctl restart, ExecStop removes the container and the kernel
 # returns the phy to the host; give the interface a moment to reappear.
 for _ in $(seq 1 15); do
