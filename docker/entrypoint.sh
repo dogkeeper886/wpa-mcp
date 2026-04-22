@@ -51,8 +51,40 @@ PLAYWRIGHT_MCP_PORT="${PLAYWRIGHT_MCP_PORT:-8931}"
 echo "entrypoint: starting Microsoft Playwright MCP on 127.0.0.1:${PLAYWRIGHT_MCP_PORT}"
 # Use the binary directly, not `npx`, because the container has no default
 # route to npm's registry (entrypoint deletes the Docker bridge default).
-playwright-mcp --port "${PLAYWRIGHT_MCP_PORT}" --host 127.0.0.1 \
+# Flags follow the upstream @playwright/mcp Docker guidance:
+#   --headless          no display server available in the container
+#   --browser chromium  use the Playwright-packaged Chromium (pre-baked
+#                       into the image at PLAYWRIGHT_BROWSERS_PATH)
+#   --no-sandbox        Chromium's setuid sandbox needs caps we don't grant
+# Launched from /tmp because playwright-mcp creates a `.playwright-mcp/`
+# artifact dir in its CWD; /app is owned by root and the node user cannot
+# write there.
+(cd /tmp && playwright-mcp \
+  --headless \
+  --browser chromium \
+  --no-sandbox \
+  --port "${PLAYWRIGHT_MCP_PORT}" \
+  --host 127.0.0.1) \
   > /tmp/playwright-mcp.log 2>&1 &
+PLAYWRIGHT_MCP_PID=$!
+
+# Sanity-check: wait briefly for playwright-mcp to bind so a failure to
+# launch surfaces as a clear log line instead of opaque 500s from the
+# reverse proxy at runtime.
+for i in 1 2 3 4 5; do
+  if ! kill -0 "$PLAYWRIGHT_MCP_PID" 2>/dev/null; then
+    echo "entrypoint: ERROR -- playwright-mcp exited during startup; see /tmp/playwright-mcp.log"
+    break
+  fi
+  if ss -tln 2>/dev/null | grep -q ":${PLAYWRIGHT_MCP_PORT} "; then
+    echo "entrypoint: playwright-mcp listening on 127.0.0.1:${PLAYWRIGHT_MCP_PORT} (pid ${PLAYWRIGHT_MCP_PID})"
+    break
+  fi
+  sleep 1
+  if [ "$i" = 5 ]; then
+    echo "entrypoint: WARNING -- playwright-mcp did not bind to ${PLAYWRIGHT_MCP_PORT} within 5s; the /playwright-mcp proxy will fail. See /tmp/playwright-mcp.log"
+  fi
+done
 
 # Hand off to Node.js server
 exec node dist/index.js "$@"
