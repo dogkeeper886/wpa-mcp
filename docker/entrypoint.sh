@@ -41,5 +41,18 @@ if [ -d /app/certs ] && [ "$(ls -A /app/certs 2>/dev/null)" ]; then
   node /app/scripts/import-certs.mjs || echo "entrypoint: cert import failed (non-fatal)"
 fi
 
+# Start Microsoft Playwright MCP in the background so a browser launched
+# by that server shares this container's network namespace -- essential for
+# reaching captive portals on the WLAN joined via wifi_connect. Bound to
+# loopback only; external clients reach it via wpa-mcp's /playwright-mcp
+# reverse proxy (which also injects a server-level `instructions` string
+# describing the intent so agents know when to pick this server).
+PLAYWRIGHT_MCP_PORT="${PLAYWRIGHT_MCP_PORT:-8931}"
+echo "entrypoint: starting Microsoft Playwright MCP on 127.0.0.1:${PLAYWRIGHT_MCP_PORT}"
+# Use the binary directly, not `npx`, because the container has no default
+# route to npm's registry (entrypoint deletes the Docker bridge default).
+playwright-mcp --port "${PLAYWRIGHT_MCP_PORT}" --host 127.0.0.1 \
+  > /tmp/playwright-mcp.log 2>&1 &
+
 # Hand off to Node.js server
 exec node dist/index.js "$@"

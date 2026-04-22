@@ -112,6 +112,7 @@ docker run --rm -d \
   -e "WIFI_INTERFACE=${IFACE}" \
   -e "WPA_DEBUG_LEVEL=${DEBUG_LEVEL}" \
   -e "PORT=3000" \
+  -e "PLAYWRIGHT_MCP_PORT=8931" \
   "$IMAGE"
 
 # --- Move WiFi phy into container netns ---
@@ -167,8 +168,11 @@ echo "Verify container:"
 echo "  docker exec $CONTAINER_NAME ip link show $CONTAINER_IFACE"
 echo "  docker exec $CONTAINER_NAME ip route"
 echo ""
-echo "MCP endpoint: http://localhost:${HOST_PORT}/mcp"
-echo "Health check: curl http://localhost:${HOST_PORT}/health"
+echo "wpa-mcp endpoint:        http://localhost:${HOST_PORT}/mcp"
+echo "Playwright MCP endpoint: http://localhost:${HOST_PORT}/playwright-mcp"
+echo "  (proxied to Microsoft Playwright MCP running on 127.0.0.1:8931 inside the container;"
+echo "   browsers it launches route through the Wi-Fi joined via wifi_connect)"
+echo "Health check:            curl http://localhost:${HOST_PORT}/health"
 echo ""
 echo "To stop and return phy to host:"
 echo "  docker rm -f $CONTAINER_NAME"

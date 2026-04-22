@@ -28,6 +28,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
   && rm -rf /var/lib/apt/lists/*
 
+# Microsoft Playwright MCP server (runs alongside wpa-mcp, shares network namespace).
+# Install globally so `npx @playwright/mcp` resolves without a network fetch at startup.
+# Chromium is downloaded on first browser launch into /home/node/.cache/ms-playwright.
+RUN npm install -g @playwright/mcp@latest
+
 # Allow node user to run only the specific privileged commands needed
 # for WiFi control, DHCP, and network configuration
 RUN printf 'node ALL=(ALL) NOPASSWD: \\\n\
