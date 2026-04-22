@@ -28,6 +28,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
   && rm -rf /var/lib/apt/lists/*
 
+# Microsoft Playwright MCP server (runs alongside wpa-mcp, shares network
+# namespace). Installed globally so the `playwright-mcp` binary is on PATH
+# without a network fetch at container start (the entrypoint deletes the
+# default route to make WiFi the sole default).
+#
+# Pinned to an exact version for reproducible builds; bump deliberately.
+RUN npm install -g @playwright/mcp@0.0.70
+
+# Pre-install Chromium + its system libs at build time. Two reasons:
+# 1. At runtime the container has no default route, so any on-demand
+#    Playwright download (~170 MiB) would hang indefinitely.
+# 2. Chromium in Debian 12 needs ~25 shared libs (libnss3, libgbm1,
+#    libatk*, libcairo2, libpango-1.0-0, libasound2, etc.). `playwright
+#    install-deps` resolves the exact set via apt.
+#
+# PLAYWRIGHT_BROWSERS_PATH pins the cache to a predictable shared path so
+# the root install (here) and the node-user runtime (playwright-mcp)
+# read from the same location.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN mkdir -p /ms-playwright \
+ && node /usr/local/lib/node_modules/@playwright/mcp/node_modules/playwright-core/cli.js install-deps chromium \
+ && node /usr/local/lib/node_modules/@playwright/mcp/node_modules/playwright-core/cli.js install chromium \
+ && chown -R node:node /ms-playwright \
+ && rm -rf /var/lib/apt/lists/*
+
 # Allow node user to run only the specific privileged commands needed
 # for WiFi control, DHCP, and network configuration
 RUN printf 'node ALL=(ALL) NOPASSWD: \\\n\

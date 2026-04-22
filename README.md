@@ -32,7 +32,7 @@ MCP (Model Context Protocol) server for WiFi control via wpa_supplicant. Enables
 | Privacy | Per-connection MAC randomization, pre-association MAC |
 | Diagnostics | EAP state/decision, filtered debug logs (eap, state, scan, error) |
 | Connectivity | Ping, DNS lookup, internet check, captive portal detection |
-| Browser Automation | Playwright scripts for captive portal login |
+| Browser Automation | Scripted Playwright runner + proxied **Microsoft Playwright MCP** for full step-by-step browser control inside the container's network namespace |
 
 ---
 
@@ -92,10 +92,20 @@ docker exec wpa-mcp ip route
 
 ### Step 5: Register MCP client
 
+The container exposes **two** MCP endpoints on a single port:
+
+| Endpoint | What it is |
+|---|---|
+| `/mcp` | wpa-mcp itself — WiFi, credentials, connectivity, scripted Playwright |
+| `/playwright-mcp` | Proxied [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) — step-by-step browser control, browser runs **inside the container's network namespace** so it reaches captive portals on the WLAN joined via `wifi_connect` |
+
 ```bash
 # Claude Code (from host or any machine that can reach port 3000)
-claude mcp add wpa-mcp --transport http http://localhost:3000/mcp
+claude mcp add wpa-mcp         --transport http http://localhost:3000/mcp
+claude mcp add wpa-playwright  --transport http http://localhost:3000/playwright-mcp
 ```
+
+The proxied Playwright MCP advertises its intent via the MCP `instructions` field, so agents registering this endpoint automatically see a "when to pick this server" description. For general browsing on the host's internet, register the stock `@playwright/mcp` separately.
 
 ### Cleanup
 
@@ -197,7 +207,8 @@ Credentials can also be added at runtime via the `credential_store` MCP tool, bu
 ### Claude Code
 
 ```bash
-claude mcp add wpa-mcp --transport http http://<HOST_IP>:3000/mcp
+claude mcp add wpa-mcp         --transport http http://<HOST_IP>:3000/mcp
+claude mcp add wpa-playwright  --transport http http://<HOST_IP>:3000/playwright-mcp
 ```
 
 ### Claude Desktop
@@ -209,6 +220,9 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "wpa-mcp": {
       "url": "http://<HOST_IP>:3000/mcp"
+    },
+    "wpa-playwright": {
+      "url": "http://<HOST_IP>:3000/playwright-mcp"
     }
   }
 }
@@ -318,7 +332,8 @@ Copy `.env.example` to `.env`. Key settings:
 
 ## API Endpoints
 
-- `POST /mcp` -- MCP protocol endpoint (Streamable HTTP)
+- `POST /mcp` -- wpa-mcp MCP protocol endpoint (Streamable HTTP, stateless)
+- `POST|GET|DELETE /playwright-mcp` -- reverse proxy to the in-container Microsoft Playwright MCP (stateful; Mcp-Session-Id required after initialize)
 - `GET /health` -- Health check
 
 ---

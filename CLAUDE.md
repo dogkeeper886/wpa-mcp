@@ -86,7 +86,7 @@ This is an MCP (Model Context Protocol) server that provides WiFi control via wp
 
 ### Key Components
 
-- **src/index.ts** - Entry point. Creates Express server, MCP server, WpaDaemon, and DhcpManager. Registers all tools.
+- **src/index.ts** - Entry point. Creates Express server, MCP server, WpaDaemon, and DhcpManager. Registers all tools. Also mounts a reverse proxy at `/playwright-mcp` that forwards to the [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) subprocess running on `127.0.0.1:8931` inside the container. The proxy intercepts the `initialize` response (both JSON and SSE bodies) and injects a `result.instructions` string so MCP clients automatically see a "when to pick this server" description. The subprocess is launched by `docker/entrypoint.sh`.
 
 - **src/tools/** - MCP tool definitions using Zod schemas for validation:
   - `wifi.ts` - WiFi management tools (scan, connect, connect_eap, connect_tls, hs20_connect, disconnect, status, etc.)
@@ -110,6 +110,17 @@ This is an MCP (Model Context Protocol) server that provides WiFi control via wp
 ### Tool Registration Pattern
 
 Tools are registered with `server.tool(name, description, zodSchema, handler)`. The handler receives validated parameters and returns `{ content: [{ type: 'text', text: JSON.stringify(...) }] }`.
+
+### Dual-MCP Architecture
+
+The container exposes **two** MCP endpoints on a single port (3000):
+
+| Path | Mode | Tools | Runs as |
+|---|---|---|---|
+| `/mcp` | Stateless Streamable HTTP | `wifi_*`, `credential_*`, `network_*`, `browser_open`, `browser_run_script`, `browser_list_scripts` | In-process (this server) |
+| `/playwright-mcp` | Stateful (proxied) | `browser_navigate`, `browser_click`, `browser_fill_form`, `browser_snapshot`, etc. | `@playwright/mcp` subprocess on `127.0.0.1:8931`, launched by the entrypoint |
+
+Why two endpoints: the stock Microsoft Playwright MCP gives step-by-step browser control that scripted Playwright doesn't. By running it inside this container, any browser it launches shares the WiFi network namespace and can reach captive portals the host never sees. The reverse proxy keeps only port 3000 exposed externally and tags the upstream `initialize` response with intent-disclosure instructions so agents know when to pick this over the stock `playwright` MCP.
 
 ### wpa_supplicant Integration
 

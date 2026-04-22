@@ -41,5 +41,63 @@ if [ -d /app/certs ] && [ "$(ls -A /app/certs 2>/dev/null)" ]; then
   node /app/scripts/import-certs.mjs || echo "entrypoint: cert import failed (non-fatal)"
 fi
 
+# Start Microsoft Playwright MCP in the background so a browser launched
+# by that server shares this container's network namespace -- essential for
+# reaching captive portals on the WLAN joined via wifi_connect. Bound to
+# loopback only; external clients reach it via wpa-mcp's /playwright-mcp
+# reverse proxy (which also injects a server-level `instructions` string
+# describing the intent so agents know when to pick this server).
+PLAYWRIGHT_MCP_PORT="${PLAYWRIGHT_MCP_PORT:-8931}"
+echo "entrypoint: starting Microsoft Playwright MCP on 127.0.0.1:${PLAYWRIGHT_MCP_PORT}"
+# Use the binary directly, not `npx`, because the container has no default
+# route to npm's registry (entrypoint deletes the Docker bridge default).
+# Flags follow the upstream @playwright/mcp Docker guidance, adapted
+# for this container:
+#   --headless                        no display server in the container
+#   --browser chromium                use the Playwright-packaged Chromium
+#                                     (pre-baked at PLAYWRIGHT_BROWSERS_PATH)
+#   --no-sandbox                      Chromium's setuid sandbox needs caps
+#                                     we don't grant
+#   --allow-unrestricted-file-access  MCP clients send their host
+#                                     workspace path (e.g. `/home/jack`)
+#                                     as the root, which doesn't exist
+#                                     in the container; bypass the check
+#   --output-dir /tmp/playwright-mcp  Pin the artifact directory. Without
+#                                     this, Playwright MCP defaults to
+#                                     `<client.cwd>/.playwright-mcp`, and
+#                                     mkdir -p on `/home/jack/...` fails
+#                                     with EACCES as the node user. /tmp
+#                                     is always writable.
+PLAYWRIGHT_MCP_OUTPUT_DIR=/tmp/playwright-mcp-output
+mkdir -p "$PLAYWRIGHT_MCP_OUTPUT_DIR"
+playwright-mcp \
+  --headless \
+  --browser chromium \
+  --no-sandbox \
+  --allow-unrestricted-file-access \
+  --output-dir "$PLAYWRIGHT_MCP_OUTPUT_DIR" \
+  --port "${PLAYWRIGHT_MCP_PORT}" \
+  --host 127.0.0.1 \
+  > /tmp/playwright-mcp.log 2>&1 &
+PLAYWRIGHT_MCP_PID=$!
+
+# Sanity-check: wait briefly for playwright-mcp to bind so a failure to
+# launch surfaces as a clear log line instead of opaque 500s from the
+# reverse proxy at runtime.
+for i in 1 2 3 4 5; do
+  if ! kill -0 "$PLAYWRIGHT_MCP_PID" 2>/dev/null; then
+    echo "entrypoint: ERROR -- playwright-mcp exited during startup; see /tmp/playwright-mcp.log"
+    break
+  fi
+  if ss -tln 2>/dev/null | grep -q ":${PLAYWRIGHT_MCP_PORT} "; then
+    echo "entrypoint: playwright-mcp listening on 127.0.0.1:${PLAYWRIGHT_MCP_PORT} (pid ${PLAYWRIGHT_MCP_PID})"
+    break
+  fi
+  sleep 1
+  if [ "$i" = 5 ]; then
+    echo "entrypoint: WARNING -- playwright-mcp did not bind to ${PLAYWRIGHT_MCP_PORT} within 5s; the /playwright-mcp proxy will fail. See /tmp/playwright-mcp.log"
+  fi
+done
+
 # Hand off to Node.js server
 exec node dist/index.js "$@"
