@@ -51,20 +51,33 @@ PLAYWRIGHT_MCP_PORT="${PLAYWRIGHT_MCP_PORT:-8931}"
 echo "entrypoint: starting Microsoft Playwright MCP on 127.0.0.1:${PLAYWRIGHT_MCP_PORT}"
 # Use the binary directly, not `npx`, because the container has no default
 # route to npm's registry (entrypoint deletes the Docker bridge default).
-# Flags follow the upstream @playwright/mcp Docker guidance:
-#   --headless          no display server available in the container
-#   --browser chromium  use the Playwright-packaged Chromium (pre-baked
-#                       into the image at PLAYWRIGHT_BROWSERS_PATH)
-#   --no-sandbox        Chromium's setuid sandbox needs caps we don't grant
-# Launched from /tmp because playwright-mcp creates a `.playwright-mcp/`
-# artifact dir in its CWD; /app is owned by root and the node user cannot
-# write there.
-(cd /tmp && playwright-mcp \
+# Flags follow the upstream @playwright/mcp Docker guidance, adapted
+# for this container:
+#   --headless                        no display server in the container
+#   --browser chromium                use the Playwright-packaged Chromium
+#                                     (pre-baked at PLAYWRIGHT_BROWSERS_PATH)
+#   --no-sandbox                      Chromium's setuid sandbox needs caps
+#                                     we don't grant
+#   --allow-unrestricted-file-access  MCP clients send their host
+#                                     workspace path (e.g. `/home/jack`)
+#                                     as the root, which doesn't exist
+#                                     in the container; bypass the check
+#   --output-dir /tmp/playwright-mcp  Pin the artifact directory. Without
+#                                     this, Playwright MCP defaults to
+#                                     `<client.cwd>/.playwright-mcp`, and
+#                                     mkdir -p on `/home/jack/...` fails
+#                                     with EACCES as the node user. /tmp
+#                                     is always writable.
+PLAYWRIGHT_MCP_OUTPUT_DIR=/tmp/playwright-mcp-output
+mkdir -p "$PLAYWRIGHT_MCP_OUTPUT_DIR"
+playwright-mcp \
   --headless \
   --browser chromium \
   --no-sandbox \
+  --allow-unrestricted-file-access \
+  --output-dir "$PLAYWRIGHT_MCP_OUTPUT_DIR" \
   --port "${PLAYWRIGHT_MCP_PORT}" \
-  --host 127.0.0.1) \
+  --host 127.0.0.1 \
   > /tmp/playwright-mcp.log 2>&1 &
 PLAYWRIGHT_MCP_PID=$!
 
