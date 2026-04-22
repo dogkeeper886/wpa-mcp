@@ -53,6 +53,12 @@ RUN mkdir -p /etc/wpa_supplicant && \
 # Create wpa_supplicant runtime directory
 RUN mkdir -p /var/run/wpa_supplicant
 
+# Pre-create credential store dir with node ownership so a mounted
+# named volume inherits correct perms (Docker copies image ownership
+# into a fresh volume on first mount).
+RUN mkdir -p /home/node/.config/wpa-mcp/credentials && \
+    chown -R node:node /home/node/.config
+
 WORKDIR /app
 
 # Copy built application and production dependencies from builder

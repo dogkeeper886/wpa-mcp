@@ -1,0 +1,22 @@
+[Unit]
+Description=wpa-mcp WiFi control MCP server (Docker + netns phy)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Edit these to match your host. WIFI_INTERFACE in particular must be set
+# to the wireless interface you want the container to own.
+Environment=WIFI_INTERFACE=wlan0
+Environment=WPA_MCP_IMAGE=wpa-mcp:latest
+Environment=PORT=3000
+Environment=WPA_DEBUG_LEVEL=2
+Environment=WPA_MCP_VOLUME=wpa-mcp-data
+
+ExecStart=/usr/local/sbin/wpa-mcp-start
+ExecStop=/usr/bin/docker rm -f wpa-mcp
+
+[Install]
+WantedBy=multi-user.target

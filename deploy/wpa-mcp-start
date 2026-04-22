@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+#
+# wpa-mcp-start -- start wpa-mcp container and move WiFi phy into its netns.
+#
+# Designed to be called by wpa-mcp.service (systemd). Lives in
+# /usr/local/sbin/ so it has no dependency on any user home directory.
+#
+# Configuration via environment (set in the systemd unit or the shell):
+#   WIFI_INTERFACE    WiFi interface name                (default: wlan0)
+#   WPA_MCP_IMAGE     Docker image tag                   (default: wpa-mcp:latest)
+#   PORT              Host port to forward               (default: 3000)
+#   WPA_DEBUG_LEVEL   wpa_supplicant debug verbosity 1-3 (default: 2)
+#   WPA_MCP_VOLUME    Named volume for credential store  (default: wpa-mcp-data)
+#
+set -euo pipefail
+
+IFACE="${WIFI_INTERFACE:-wlan0}"
+IMAGE="${WPA_MCP_IMAGE:-wpa-mcp:latest}"
+PORT="${PORT:-3000}"
+DEBUG_LEVEL="${WPA_DEBUG_LEVEL:-2}"
+VOLUME="${WPA_MCP_VOLUME:-wpa-mcp-data}"
+CONTAINER="wpa-mcp"
+
+# On systemctl restart, ExecStop removes the container and the kernel
+# returns the phy to the host; give the interface a moment to reappear.
+for _ in $(seq 1 15); do
+  [[ -d /sys/class/net/$IFACE ]] && break
+  sleep 1
+done
+if [[ ! -d /sys/class/net/$IFACE ]]; then
+  echo "error: interface $IFACE not present on host" >&2
+  exit 1
+fi
+
+PHY=$(cat "/sys/class/net/$IFACE/phy80211/name")
+
+docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+ip link set "$IFACE" down 2>/dev/null || true
+
+docker run --rm -d \
+  --name "$CONTAINER" \
+  --cap-add NET_ADMIN --cap-add NET_RAW \
+  -p "$PORT:3000" \
+  -v "$VOLUME:/home/node/.config/wpa-mcp" \
+  -e "WIFI_INTERFACE=$IFACE" \
+  -e "WPA_DEBUG_LEVEL=$DEBUG_LEVEL" \
+  -e "PORT=3000" \
+  "$IMAGE" >/dev/null
+
+PID=$(docker inspect --format '{{.State.Pid}}' "$CONTAINER")
+if [[ -z "$PID" || "$PID" == "0" ]]; then
+  echo "error: could not resolve container PID" >&2
+  exit 1
+fi
+
+iw phy "$PHY" set netns "$PID"
+
+for _ in $(seq 1 30); do
+  if curl -sf "http://localhost:$PORT/health" >/dev/null 2>&1; then
+    echo "wpa-mcp: healthy (phy $PHY in container PID $PID, volume $VOLUME)"
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "error: health check failed after 30s" >&2
+exit 1
