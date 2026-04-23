@@ -1,4 +1,4 @@
-## Dual-MCP Playwright Design
+# Dual-MCP Playwright Design
 
 **Status:** Complete
 **Created:** 2026-04-23
