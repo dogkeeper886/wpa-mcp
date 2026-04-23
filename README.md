@@ -2,6 +2,8 @@
 
 MCP (Model Context Protocol) server for WiFi control via wpa_supplicant. Enables Claude and other MCP clients to scan, connect, disconnect, debug, and automate WiFi networks on Linux -- including WPA-PSK, WPA2-Enterprise, EAP-TLS, captive portal handling, and MAC randomization.
 
+**Docker image:** [`dogkeeper886/wpa-mcp`](https://hub.docker.com/r/dogkeeper886/wpa-mcp) — pull `:2.0.0` or `:latest` instead of building locally.
+
 ---
 
 ## Architecture
@@ -63,12 +65,24 @@ sudo make nm-unmanage WIFI_INTERFACE=wlp6s0
 # Creates /etc/NetworkManager/conf.d/99-unmanaged-wlp6s0.conf (persistent)
 ```
 
-### Step 3: Build and start
+### Step 3: Get the image, then start
+
+Either build locally:
 
 ```bash
 make docker-build
 sudo make docker-start
 ```
+
+Or pull the pre-built image from Docker Hub and point the Makefile at it:
+
+```bash
+docker pull dogkeeper886/wpa-mcp:2.0.0
+echo "WPA_MCP_IMAGE=dogkeeper886/wpa-mcp:2.0.0" >> .env
+sudo make docker-start
+```
+
+`WPA_MCP_IMAGE` is read from `.env` by `make docker-start`; default is `wpa-mcp:latest` (the local build).
 
 The start script:
 1. Starts the container with Docker bridge networking (port 3000 forwarded)
