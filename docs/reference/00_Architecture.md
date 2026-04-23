@@ -1,7 +1,7 @@
 # Architecture
 
 **Status:** Complete  
-**Updated:** 2026-01-14
+**Updated:** 2026-04-23
 
 ---
 
@@ -13,6 +13,17 @@ This document describes the system architecture of wpa-mcp, including component 
 
 ## System Overview
 
+The container exposes **one** external port (3000) that fronts two MCP
+endpoints: the in-process `wpa-mcp` server (WiFi / credentials / connectivity
+/ scripted browser) and a reverse proxy in front of the
+[Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp)
+running as a subprocess on `127.0.0.1:8931`. Both endpoints share the
+container's network namespace, so the Playwright browser reaches captive
+portals on the WLAN that `wifi_connect` joined.
+
+See [13_Dual_MCP_Playwright_Design.md](../design/13_Dual_MCP_Playwright_Design.md)
+for the design decisions behind the proxy.
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    MCP Client Layer                             │
@@ -23,55 +34,50 @@ This document describes the system architecture of wpa-mcp, including component 
 │  - Manages conversation context                                 │
 └────────────────────────────┬────────────────────────────────────┘
                              │
-                             │ HTTP POST /mcp (JSON-RPC)
+                             │  HTTP (JSON-RPC, Streamable HTTP)
+                             │  single external port: 3000
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Transport Layer                              │
-│              src/index.ts                                       │
+│              src/index.ts  (Express, port 3000)                 │
 │                                                                 │
-│  ┌─────────────────┐    ┌─────────────────────────────────┐    │
-│  │  Express Server │───►│ StreamableHTTPServerTransport   │    │
-│  │  Port: 3000     │    │ Handles MCP protocol framing    │    │
-│  └─────────────────┘    └─────────────────────────────────┘    │
-│                                                                 │
-│  Endpoints:                                                     │
-│  - POST /mcp      MCP protocol                                  │
-│  - GET  /health   Health check                                  │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    MCP Server Layer                             │
-│              @modelcontextprotocol/sdk                          │
-│                                                                 │
-│  - Registers tools with Zod schemas                             │
-│  - Validates incoming parameters                                │
-│  - Routes requests to handlers                                  │
-│  - Formats responses                                            │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        ▼                    ▼                    ▼
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│  WiFi Tools   │    │Browser Tools  │    │ Connectivity  │
-│               │    │               │    │    Tools      │
-│ wifi.ts       │    │ browser.ts    │    │connectivity.ts│
-│ credentials.ts│    │               │    │               │
-└───────┬───────┘    └───────┬───────┘    └───────┬───────┘
-        │                    │                    │
-        ▼                    ▼                    ▼
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│  WiFi Libs    │    │ Playwright    │    │ Network Check │
-│               │    │   Runner      │    │               │
-│ wpa-cli.ts    │    │               │    │ network-      │
-│ wpa-daemon.ts │    │ playwright-   │    │   check.ts    │
-│ dhcp-manager  │    │   runner.ts   │    │               │
-│ mac-utils.ts  │    │               │    │               │
-│ credential-   │    │               │    │               │
-│   store.ts    │    │               │    │               │
-└───────┬───────┘    └───────┬───────┘    └───────┬───────┘
-        │                    │                    │
-        ▼                    ▼                    ▼
+│  ┌──────────────┐   ┌───────────────────┐   ┌──────────────┐   │
+│  │  POST /mcp   │   │ POST/GET/DELETE   │   │ GET /health  │   │
+│  │  (stateless) │   │  /playwright-mcp  │   │              │   │
+│  └──────┬───────┘   │  (stateful)       │   └──────────────┘   │
+│         │           └────────┬──────────┘                       │
+│         │                    │ reverse proxy                    │
+│         │                    │ (see design doc 13)              │
+│         │                    ▼                                  │
+│         │         ┌────────────────────┐                        │
+│         │         │ @playwright/mcp    │                        │
+│         │         │ subprocess         │                        │
+│         │         │ 127.0.0.1:8931     │  (internal only)       │
+│         │         └─────────┬──────────┘                        │
+│         │                   │                                   │
+│         ▼                   ▼                                   │
+└─────────┼─────────────────────────────────────────────────────┬─┘
+          │                                                     │
+          ▼                                                     │
+┌─────────────────────────────────────────────────────────────┐ │
+│                    MCP Server Layer                         │ │
+│              @modelcontextprotocol/sdk                      │ │
+│                                                             │ │
+│  - Registers tools with Zod schemas                         │ │
+│  - Validates incoming parameters                            │ │
+│  - Routes requests to handlers                              │ │
+└────────────────────────────┬────────────────────────────────┘ │
+                             │                                  │
+        ┌────────────────────┼────────────────────┐             │
+        ▼                    ▼                    ▼             │
+┌───────────────┐    ┌───────────────┐    ┌───────────────┐     │
+│  WiFi Tools   │    │Browser Tools  │    │ Connectivity  │     │
+│               │    │               │    │    Tools      │     │
+│ wifi.ts       │    │ browser.ts    │    │connectivity.ts│     │
+│ credentials.ts│    │               │    │               │     │
+└───────┬───────┘    └───────┬───────┘    └───────┬───────┘     │
+        │                    │                    │             │
+        ▼                    ▼                    ▼             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    System Layer                                 │
 │                                                                 │
@@ -85,6 +91,14 @@ This document describes the system architecture of wpa-mcp, including component 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Endpoint summary
+
+| Path                     | Transport                  | Served by                            | Session      |
+|--------------------------|-----------------------------|--------------------------------------|--------------|
+| `POST /mcp`              | Streamable HTTP, stateless  | `wpa-mcp` in-process                 | —            |
+| `/playwright-mcp`        | Streamable HTTP, stateful   | Reverse proxy → `@playwright/mcp`    | `Mcp-Session-Id` |
+| `GET /health`            | HTTP                        | `wpa-mcp` in-process                 | —            |
+
 ---
 
 ## Component Details
@@ -94,16 +108,24 @@ This document describes the system architecture of wpa-mcp, including component 
 Main server initialization and lifecycle management.
 
 **Responsibilities:**
-- Create Express HTTP server
+- Create Express HTTP server on the single external port (3000)
 - Initialize MCP server with transport
 - Create WpaDaemon instance (managed wpa_supplicant)
 - Create DhcpManager instance
 - Register all tools from src/tools/*
+- Mount the `/playwright-mcp` reverse proxy (two instances: a buffered
+  proxy that injects intent-discovery `instructions` into the `initialize`
+  response, and a streaming proxy for everything else — see
+  [13_Dual_MCP_Playwright_Design.md](../design/13_Dual_MCP_Playwright_Design.md))
 - Handle graceful shutdown (SIGTERM, SIGINT)
+
+The `@playwright/mcp` subprocess itself is launched by
+`docker/entrypoint.sh` on `127.0.0.1:8931` before Node starts — the Node
+server only proxies to it.
 
 **Key Objects:**
 ```typescript
-const server = new Server({ name: "wpa-mcp", version: "1.0.0" });
+const server = new Server({ name: "wpa-mcp", version: "2.0.0" });
 const wpaDaemon = new WpaDaemon(config.interface);
 const dhcpManager = new DhcpManager(config.interface);
 const wpa = new WpaCli(config.interface);
@@ -469,11 +491,16 @@ WPA_MCP_SCRIPTS_DIR=~/.config/wpa-mcp/scripts
 |---------|---------|---------|
 | @modelcontextprotocol/sdk | ^1.12.0 | MCP protocol |
 | express | ^4.21.0 | HTTP server |
+| http-proxy-middleware | ^3.0.5 | Reverse proxy for `/playwright-mcp` |
 | zod | ^3.24.0 | Input validation |
-| playwright | ^1.49.0 | Browser automation |
+| playwright | ^1.49.0 | Browser automation (scripted runner) |
 | dotenv | ^17.2.3 | Environment config |
 | is-online | ^10.0.0 | Internet check |
 | open | ^10.1.0 | Browser opening |
+
+The container also runs `@playwright/mcp` as a subprocess (installed
+globally in the Docker image, pinned version). That is not a Node
+dependency of this project.
 
 ---
 
@@ -482,3 +509,5 @@ WPA_MCP_SCRIPTS_DIR=~/.config/wpa-mcp/scripts
 - [01_WiFi_Tools.md](./01_WiFi_Tools.md) - WiFi tool reference
 - [02_Connectivity_Tools.md](./02_Connectivity_Tools.md) - Network diagnostics
 - [03_Browser_Tools.md](./03_Browser_Tools.md) - Browser automation
+- [05_Docker_Netns_Isolation.md](./05_Docker_Netns_Isolation.md) - Why the container has its own netns
+- [13_Dual_MCP_Playwright_Design.md](../design/13_Dual_MCP_Playwright_Design.md) - Design of the `/playwright-mcp` reverse proxy

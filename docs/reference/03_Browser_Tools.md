@@ -1,7 +1,7 @@
 # Browser Tools
 
 **Status:** Complete  
-**Updated:** 2026-01-14
+**Updated:** 2026-04-23
 
 ---
 
@@ -11,11 +11,39 @@ This document provides a complete reference for browser automation tools, primar
 
 ---
 
-## Tools Overview
+## Two Complementary Browser Surfaces
+
+wpa-mcp exposes browser control through two MCP endpoints on the same
+external port (3000). Pick by task, not by preference — they solve
+different problems.
+
+| Surface                | Path                | Best for                                                                                 |
+|------------------------|---------------------|------------------------------------------------------------------------------------------|
+| Scripted runner        | `/mcp`              | **Known** portal flows with pre-written scripts checked into `~/.config/wpa-mcp/scripts/`. Fire-and-forget. |
+| Proxied `wpa-playwright` | `/playwright-mcp`   | **Unknown / exploratory** portals (WISPr, vendor-specific, one-off). Step-by-step primitives: navigate, click, fill, snapshot. |
+
+The proxied surface is the Microsoft [`@playwright/mcp`](https://github.com/microsoft/playwright-mcp)
+server running as a subprocess inside this container, so the browser
+it launches shares the container's network namespace — the only way
+to reach captive portals on the WLAN joined via `wifi_connect`. See
+[13_Dual_MCP_Playwright_Design.md](../design/13_Dual_MCP_Playwright_Design.md)
+for the design and [00_Architecture.md](./00_Architecture.md#endpoint-summary)
+for the endpoint summary. For general browsing on the host's internet,
+register the stock `@playwright/mcp` separately.
+
+This document covers the scripted runner (`browser_*` tools under
+`/mcp`). For the step-by-step tools exposed by `/playwright-mcp`
+(`browser_navigate`, `browser_click`, `browser_fill_form`,
+`browser_snapshot`, ...), consult the
+[Microsoft Playwright MCP documentation](https://github.com/microsoft/playwright-mcp).
+
+---
+
+## Scripted Tools Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Browser Tools                               │
+│            Scripted Browser Tools (served on /mcp)              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  browser_open           Open URL in system browser              │
@@ -474,3 +502,4 @@ export default async function(page, variables) {
 
 - [00_Architecture.md](./00_Architecture.md) - System architecture
 - [02_Connectivity_Tools.md](./02_Connectivity_Tools.md) - Captive portal detection
+- [13_Dual_MCP_Playwright_Design.md](../design/13_Dual_MCP_Playwright_Design.md) - Design of the proxied `/playwright-mcp` endpoint

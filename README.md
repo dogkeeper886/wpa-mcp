@@ -164,7 +164,7 @@ sudo systemctl stop wpa-mcp
 docker volume rm wpa-mcp-data
 ```
 
-See [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) for the full netns architecture and route trace.
+See [docs/reference/05_Docker_Netns_Isolation.md](docs/reference/05_Docker_Netns_Isolation.md) for the full netns architecture and route trace.
 
 ---
 
@@ -343,12 +343,14 @@ Copy `.env.example` to `.env`. Key settings:
 | Document | Description |
 |----------|-------------|
 | [docs/README.md](docs/README.md) | Full documentation index, user flow, and feature table |
-| [docs/00_Architecture.md](docs/00_Architecture.md) | Component architecture and details |
-| [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) | Docker netns architecture and route trace |
-| [docs/01_WiFi_Tools.md](docs/01_WiFi_Tools.md) | WiFi tools reference and debug log filters |
-| [docs/03_Browser_Tools.md](docs/03_Browser_Tools.md) | Playwright script format and browser automation |
-| [docs/20_Troubleshooting.md](docs/20_Troubleshooting.md) | Docker and DNS troubleshooting guide |
-| [docs/30_Docker_Dev_Plan.md](docs/30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
+| [docs/reference/00_Architecture.md](docs/reference/00_Architecture.md) | Component architecture and details |
+| [docs/reference/05_Docker_Netns_Isolation.md](docs/reference/05_Docker_Netns_Isolation.md) | Docker netns architecture and route trace |
+| [docs/reference/01_WiFi_Tools.md](docs/reference/01_WiFi_Tools.md) | WiFi tools reference and debug log filters |
+| [docs/reference/03_Browser_Tools.md](docs/reference/03_Browser_Tools.md) | Scripted runner + proxied Playwright MCP |
+| [docs/design/13_Dual_MCP_Playwright_Design.md](docs/design/13_Dual_MCP_Playwright_Design.md) | Dual-MCP `/playwright-mcp` proxy design |
+| [docs/operations/20_Troubleshooting.md](docs/operations/20_Troubleshooting.md) | Docker and DNS troubleshooting guide |
+| [docs/plans/30_Docker_Dev_Plan.md](docs/plans/30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ---
 
