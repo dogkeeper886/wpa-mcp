@@ -2,6 +2,8 @@
 
 MCP (Model Context Protocol) server for WiFi control via wpa_supplicant. Enables Claude and other MCP clients to scan, connect, disconnect, debug, and automate WiFi networks on Linux -- including WPA-PSK, WPA2-Enterprise, EAP-TLS, captive portal handling, and MAC randomization.
 
+**Docker image:** [`dogkeeper886/wpa-mcp`](https://hub.docker.com/r/dogkeeper886/wpa-mcp) — pull `:2.0.0` or `:latest` instead of building locally.
+
 ---
 
 ## Architecture
@@ -63,12 +65,24 @@ sudo make nm-unmanage WIFI_INTERFACE=wlp6s0
 # Creates /etc/NetworkManager/conf.d/99-unmanaged-wlp6s0.conf (persistent)
 ```
 
-### Step 3: Build and start
+### Step 3: Get the image, then start
+
+Either build locally:
 
 ```bash
 make docker-build
 sudo make docker-start
 ```
+
+Or pull the pre-built image from Docker Hub and point the Makefile at it:
+
+```bash
+docker pull dogkeeper886/wpa-mcp:2.0.0
+echo "WPA_MCP_IMAGE=dogkeeper886/wpa-mcp:2.0.0" >> .env
+sudo make docker-start
+```
+
+`WPA_MCP_IMAGE` is read from `.env` by `make docker-start`; default is `wpa-mcp:latest` (the local build).
 
 The start script:
 1. Starts the container with Docker bridge networking (port 3000 forwarded)
@@ -164,7 +178,7 @@ sudo systemctl stop wpa-mcp
 docker volume rm wpa-mcp-data
 ```
 
-See [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) for the full netns architecture and route trace.
+See [docs/reference/05_Docker_Netns_Isolation.md](docs/reference/05_Docker_Netns_Isolation.md) for the full netns architecture and route trace.
 
 ---
 
@@ -343,12 +357,14 @@ Copy `.env.example` to `.env`. Key settings:
 | Document | Description |
 |----------|-------------|
 | [docs/README.md](docs/README.md) | Full documentation index, user flow, and feature table |
-| [docs/00_Architecture.md](docs/00_Architecture.md) | Component architecture and details |
-| [docs/05_Structure_and_Flow.md](docs/05_Structure_and_Flow.md) | Docker netns architecture and route trace |
-| [docs/01_WiFi_Tools.md](docs/01_WiFi_Tools.md) | WiFi tools reference and debug log filters |
-| [docs/03_Browser_Tools.md](docs/03_Browser_Tools.md) | Playwright script format and browser automation |
-| [docs/20_Troubleshooting.md](docs/20_Troubleshooting.md) | Docker and DNS troubleshooting guide |
-| [docs/30_Docker_Dev_Plan.md](docs/30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
+| [docs/reference/00_Architecture.md](docs/reference/00_Architecture.md) | Component architecture and details |
+| [docs/reference/05_Docker_Netns_Isolation.md](docs/reference/05_Docker_Netns_Isolation.md) | Docker netns architecture and route trace |
+| [docs/reference/01_WiFi_Tools.md](docs/reference/01_WiFi_Tools.md) | WiFi tools reference and debug log filters |
+| [docs/reference/03_Browser_Tools.md](docs/reference/03_Browser_Tools.md) | Scripted runner + proxied Playwright MCP |
+| [docs/design/13_Dual_MCP_Playwright_Design.md](docs/design/13_Dual_MCP_Playwright_Design.md) | Dual-MCP `/playwright-mcp` proxy design |
+| [docs/operations/20_Troubleshooting.md](docs/operations/20_Troubleshooting.md) | Docker and DNS troubleshooting guide |
+| [docs/plans/30_Docker_Dev_Plan.md](docs/plans/30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ---
 

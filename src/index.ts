@@ -53,7 +53,7 @@ const dhcpManager = new DhcpManager();
 // Create MCP server
 const mcpServer = new McpServer({
   name: "wpa-mcp",
-  version: "1.0.0",
+  version: "2.0.0",
 });
 
 // Register all tools
@@ -206,7 +206,7 @@ app.use("/playwright-mcp", (req, res, next) => {
 
 // Health check endpoint
 app.get("/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", server: "wpa-mcp", version: "1.0.0" });
+  res.json({ status: "ok", server: "wpa-mcp", version: "2.0.0" });
 });
 
 // Graceful shutdown

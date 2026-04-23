@@ -1,8 +1,8 @@
 # wpa-mcp Documentation
 
 **Status:** Complete  
-**Version:** 1.1.0  
-**Updated:** 2026-02-06
+**Version:** 2.0.0  
+**Updated:** 2026-04-23
 
 ---
 
@@ -74,19 +74,31 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 
 ## Architecture
 
+One external port (3000) fronts two MCP endpoints: `/mcp` (wpa-mcp itself)
+and `/playwright-mcp` (reverse-proxied Microsoft Playwright MCP running
+inside the container's network namespace so its browser reaches captive
+portals on the WLAN joined via `wifi_connect`). Full design:
+[13_Dual_MCP_Playwright_Design](./design/13_Dual_MCP_Playwright_Design.md).
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         MCP Client                              │
 │                  (Claude Desktop / Claude Code)                 │
 └────────────────────────────┬────────────────────────────────────┘
-                             │ HTTP POST /mcp
+                             │ HTTP (single port: 3000)
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      src/index.ts                               │
-│              Express + StreamableHTTPServerTransport            │
-├─────────────────────────────────────────────────────────────────┤
-│                      McpServer                                  │
-│              (registers tools from src/tools/*)                 │
+│                      src/index.ts  (Express)                    │
+│                                                                 │
+│  ┌───────────┐  ┌────────────────────┐  ┌───────────────────┐  │
+│  │ POST /mcp │  │ POST/GET/DELETE    │  │     /health       │  │
+│  │ in-proc   │  │  /playwright-mcp   │  │                   │  │
+│  │ McpServer │  │  reverse proxy →   │  │                   │  │
+│  └────┬──────┘  │  @playwright/mcp   │  └───────────────────┘  │
+│       │         │  (loopback :8931)  │                         │
+│       │         └────────────────────┘                         │
+│       ▼                                                        │
+│   tools from src/tools/*                                       │
 └───────┬─────────────────────┬─────────────────────┬─────────────┘
         │                     │                     │
         ▼                     ▼                     ▼
@@ -124,10 +136,11 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 | | wifi_connect | Connect to WPA-PSK or open networks | Complete |
 | | wifi_connect_eap | Connect to WPA2-Enterprise (PEAP/TTLS) | Complete |
 | | wifi_connect_tls | Connect using EAP-TLS certificates | Complete |
+| | wifi_hs20_connect | Connect to Hotspot 2.0 / Passpoint network | Complete |
 | | wifi_disconnect | Disconnect from current network | Complete |
 | | wifi_reconnect | Reconnect to saved network | Complete |
 | **Network Management** | | | |
-| | wifi_scan | Scan for available networks | Complete |
+| | wifi_scan | Scan for available networks (paginates BSS ids, no truncation in dense RF) | Complete |
 | | wifi_status | Get current connection status | Complete |
 | | wifi_list_networks | List saved networks | Complete |
 | | wifi_forget | Remove a saved network | Complete |
@@ -141,20 +154,25 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 | | network_dns_lookup | Perform DNS lookup | Complete |
 | **Browser Automation** | | | |
 | | browser_open | Open URL in system browser | Complete |
-| | browser_run_script | Execute Playwright script | Complete |
+| | browser_run_script | Execute Playwright script (scripted runner) | Complete |
 | | browser_list_scripts | List available scripts | Complete |
+| | `/playwright-mcp` endpoint | Proxied Microsoft Playwright MCP for step-by-step browser control inside the container's netns (captive portals / WISPr) | Complete |
 | **Credential Management** | | | |
 | | credential_store | Store EAP-TLS certificates | Complete |
 | | credential_get | Retrieve credential metadata | Complete |
 | | credential_list | List all credentials | Complete |
 | | credential_delete | Delete a credential | Complete |
+| | Persistent credential volume | `wpa-mcp-data` named volume survives container restarts | Complete |
+| | Baked cert auto-import | Certs in `certs/` baked into image, re-imported on every start | Complete |
 | **Privacy** | | | |
 | | MAC Randomization | Per-connection MAC address control | Complete |
 | | Pre-assoc MAC | MAC randomization during scanning | Complete |
+| | Permanent MAC restore (Docker) | `mac_mode=device` uses real hardware MAC after `iw phy set netns` | Complete |
 | **Docker** | | | |
 | | Network Namespace Isolation | WiFi phy moved into container netns | Complete |
 | | Entrypoint Route Cleanup | Automatic bridge default route deletion | Complete |
 | | NM Unmanage Automation | Persistent NetworkManager unmanage via Makefile | Complete |
+| | systemd daemon | `sudo make install-systemd` for auto-start on boot | Complete |
 | | Integration Test | Full lifecycle test (18/18 pass) | Complete |
 
 ---
@@ -178,6 +196,7 @@ This documentation provides a comprehensive reference for the wpa-mcp project - 
 | 10 | [EAP-TLS Authentication](./design/10_EAP-TLS_Design.md) | 802.1X certificate authentication design |
 | 11 | [Credential Store](./design/11_Credential_Store_Design.md) | Certificate storage system design |
 | 12 | [HS20 / Passpoint](./design/12_HS20_Design.md) | Hotspot 2.0 auto-discovery design |
+| 13 | [Dual-MCP Playwright](./design/13_Dual_MCP_Playwright_Design.md) | `/playwright-mcp` reverse proxy design |
 | — | [MAC Address Restoration](./design/mac-address-restoration.md) | Docker MAC address decision record |
 
 ### User Stories
@@ -218,16 +237,27 @@ make start
 
 ### 2. Configure MCP Client
 
-Add to Claude Desktop config:
+Both endpoints run on the same external port (3000). Add to Claude
+Desktop config:
 
 ```json
 {
   "mcpServers": {
     "wpa-mcp": {
       "url": "http://localhost:3000/mcp"
+    },
+    "wpa-playwright": {
+      "url": "http://localhost:3000/playwright-mcp"
     }
   }
 }
+```
+
+Or via Claude Code CLI:
+
+```bash
+claude mcp add wpa-mcp         --transport http http://localhost:3000/mcp
+claude mcp add wpa-playwright  --transport http http://localhost:3000/playwright-mcp
 ```
 
 ### 3. Connect to WiFi
