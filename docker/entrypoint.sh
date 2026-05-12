@@ -19,6 +19,10 @@ set -euo pipefail
 
 IFACE="${WIFI_INTERFACE:-wlan0}"
 
+# Capture the bridge gateway before we (optionally) delete the default route;
+# the policy-routing rule below needs it to send MCP replies back via eth0.
+BRIDGE_GW="$(ip route show default 2>/dev/null | awk '/dev eth0/ {print $3; exit}')"
+
 # Delete Docker bridge default route so WiFi becomes the sole default
 # when dhclient runs during wifi_connect. The bridge subnet route is
 # preserved for MCP client access via Docker port forwarding.
@@ -27,6 +31,22 @@ if [[ "${KEEP_BRIDGE_DEFAULT:-}" != "1" ]]; then
     echo "entrypoint: deleting bridge default route"
     sudo ip route del default 2>/dev/null || true
   fi
+fi
+
+# Source-based reply routing for inbound MCP traffic. Without this, when the
+# joined WiFi LAN shares a subnet with the docker host's other interface (e.g.
+# host wired and container WiFi both on 192.168.5.0/24), the kernel matches
+# `192.168.5.0/24 dev wlp0s20f3` for the reply and sends SYN-ACKs out the
+# WiFi side instead of back via eth0. Remote MCP clients then see TCP
+# timeouts. By scoping the override to packets whose *source* is our eth0
+# address, WiFi-originated traffic (src = wlp0s20f3 IP) is untouched.
+ETH0_IP="$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
+if [[ -n "$ETH0_IP" && -n "$BRIDGE_GW" ]]; then
+  echo "entrypoint: installing reply-path policy route (src=$ETH0_IP via $BRIDGE_GW)"
+  sudo ip route add default via "$BRIDGE_GW" dev eth0 table 100 2>/dev/null || true
+  sudo ip rule add from "$ETH0_IP" table 100 priority 100 2>/dev/null || true
+else
+  echo "entrypoint: skipping reply-path policy route (eth0_ip=$ETH0_IP bridge_gw=$BRIDGE_GW)"
 fi
 
 # Bring WiFi interface up if present (phy may be moved in after start)
