@@ -19,6 +19,10 @@ As a user, I want to open a URL in the system browser so that I can manually int
 2. Invalid URL returns informative error
 3. Returns success message with the opened URL
 
+### Notes
+
+- **Out of scope: locale/timezone control.** `browser_open` spawns the server host's default browser via the `open` npm package; that browser is not inside the container's netns and is not configured by `WPA_MCP_BROWSER_LANG` / `WPA_MCP_BROWSER_TZ`. For i18n testing inside the container, use `browser_run_script` or the proxied `mcp__wpa-playwright__*` tools instead (US-BROW-005).
+
 ### Test Mapping
 
 | AC# | Test Case | Status |
@@ -152,7 +156,7 @@ As a user driving a captive portal through the proxied `wpa-playwright` MCP, I w
 - **Non-functional constraint — bind at container start.** Playwright's `contextOptions` are applied at Chromium context creation, which is the first `browser_navigate` after the `playwright-mcp` subprocess launches. Changing either env var mid-life has no effect until `make docker-restart` (or equivalent). This is documented as a known limitation, not a bug.
 - **Browser scope only.** These env vars affect *only* the headless Chromium that `playwright-mcp` spawns. They do **not** change the container shell's `LANG` / `LC_ALL`, the output of `date`, or the timestamps in `/tmp/wpa_supplicant_*.log`. A full system locale is out of scope (would require the `locales` apt package + `locale-gen`).
 - **Invalid locale strings are silently accepted.** Chromium does not validate `navigator.language` content; an unknown locale (e.g. `garbage`) is forwarded as-is to the `Accept-Language` header and `navigator.language`. Only invalid timezone IDs throw at context creation (covered by AC7).
-- The implementation lives entirely in `docker/entrypoint.sh` plus passthrough plumbing in `docker/run.sh`, `deploy/wpa-mcp.service`, and `.env.example`. No `src/` changes.
+- The proxied `@playwright/mcp` surface is configured via `docker/entrypoint.sh` + passthrough plumbing in `docker/run.sh`, `deploy/wpa-mcp.service`, and `.env.example`. The in-process `browser_run_script` surface (`src/lib/playwright-runner.ts`) reads the same two env vars and passes them to `browser.newContext({ locale, timezoneId })` (issue #53). `browser_open` (US-BROW-001) is **not** covered — it spawns a browser on the server host, outside the container.
 
 ### Test Mapping
 
