@@ -158,13 +158,13 @@ As a user driving a captive portal through the proxied `wpa-playwright` MCP, I w
 
 | AC# | Test Case | Status |
 |-----|-----------|--------|
-| 1 | TC-INT-018 | Covered (specs written, pending implementation) |
-| 2 | TC-INT-019 | Covered (specs written, pending implementation) |
-| 3 | TC-INT-018 | Covered (specs written, pending implementation) |
-| 4 | TC-INT-020 | Covered (specs written, pending implementation) |
-| 5 | TC-INT-021 | Covered (specs written, pending implementation) |
-| 6 | TC-INT-023 | Covered (specs written, pending implementation) |
-| 7 | TC-INT-022 | Covered (specs written, pending implementation) |
+| 1 | TC-INT-018 | Covered |
+| 2 | TC-INT-019 | Covered |
+| 3 | TC-INT-018 | Covered |
+| 4 | TC-INT-020 | Covered |
+| 5 | TC-INT-021 | Covered |
+| 6 | TC-INT-023 | Covered |
+| 7 | TC-INT-022 | Covered |
 
 ### Tags
 
@@ -180,6 +180,6 @@ As a user driving a captive portal through the proxied `wpa-playwright` MCP, I w
 | US-BROW-002 | AC1-7 | — | No test |
 | US-BROW-003 | AC1-4 | — | No test |
 | US-BROW-004 | AC1-10 | — | No test |
-| US-BROW-005 | AC1-7 | TC-INT-018, TC-INT-019, TC-INT-020, TC-INT-021, TC-INT-022, TC-INT-023 | Specs written, pending implementation |
+| US-BROW-005 | AC1-7 | TC-INT-018, TC-INT-019, TC-INT-020, TC-INT-021, TC-INT-022, TC-INT-023 | Covered |
 
-**Coverage:** 7/31 ACs have test coverage (24 pre-existing stories still have no tests; all 7 ACs of US-BROW-005 covered by 6 new TC-INT specs that will run against the wpa-mcp:ci image once the feature is implemented).
+**Coverage:** 7/31 ACs have test coverage (24 pre-existing stories still have no tests; all 7 ACs of US-BROW-005 covered by 6 new TC-INT specs that run against the wpa-mcp:ci image — all green at 2026-05-12).

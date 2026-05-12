@@ -1,6 +1,6 @@
 # Browser Locale and Timezone Design
 
-**Status:** Draft
+**Status:** Complete
 **Created:** 2026-05-11
 **Related:** [13_Dual_MCP_Playwright_Design.md](./13_Dual_MCP_Playwright_Design.md), [03_Browser_Tools.md](../reference/03_Browser_Tools.md), [GitHub Issue #47](https://github.com/dogkeeper886/wpa-mcp/issues/47)
 
