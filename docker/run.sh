@@ -13,10 +13,12 @@
 #   sudo ./docker/run.sh [WIFI_INTERFACE]
 #
 # Environment (can be set in .env at project root):
-#   WIFI_INTERFACE   WiFi interface name (default: wlan0, or first arg)
-#   WPA_MCP_IMAGE    Docker image name  (default: wpa-mcp:latest)
-#   PORT             Host port to forward (default: 3000)
-#   WPA_DEBUG_LEVEL  Debug verbosity 1-3 (default: 2)
+#   WIFI_INTERFACE         WiFi interface name (default: wlan0, or first arg)
+#   WPA_MCP_IMAGE          Docker image name  (default: wpa-mcp:latest)
+#   PORT                   Host port to forward (default: 3000)
+#   WPA_DEBUG_LEVEL        Debug verbosity 1-3 (default: 2)
+#   WPA_MCP_BROWSER_LANG   BCP-47 locale for the in-container browser (e.g. pt-PT)
+#   WPA_MCP_BROWSER_TZ     IANA timezone for the in-container browser (e.g. Europe/Lisbon)
 #
 set -euo pipefail
 
@@ -114,6 +116,8 @@ docker run --rm -d \
   -e "WPA_DEBUG_LEVEL=${DEBUG_LEVEL}" \
   -e "PORT=3000" \
   -e "PLAYWRIGHT_MCP_PORT=8931" \
+  -e "WPA_MCP_BROWSER_LANG=${WPA_MCP_BROWSER_LANG:-}" \
+  -e "WPA_MCP_BROWSER_TZ=${WPA_MCP_BROWSER_TZ:-}" \
   "$IMAGE"
 
 # --- Move WiFi phy into container netns ---

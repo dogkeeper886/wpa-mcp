@@ -15,6 +15,13 @@ Environment=PORT=3000
 Environment=WPA_DEBUG_LEVEL=2
 Environment=WPA_MCP_VOLUME=wpa-mcp-data
 
+# Optional: configure the in-container browser's locale and timezone for
+# i18n captive-portal testing. Both are read at container start; changing
+# them requires a service restart. See
+# docs/design/14_Browser_Locale_Timezone_Design.md.
+#Environment=WPA_MCP_BROWSER_LANG=pt-PT
+#Environment=WPA_MCP_BROWSER_TZ=Europe/Lisbon
+
 ExecStart=/usr/local/sbin/wpa-mcp-start
 ExecStop=/usr/bin/docker rm -f wpa-mcp
 
