@@ -197,6 +197,7 @@ portals on the WLAN joined via `wifi_connect`). Full design:
 | 11 | [Credential Store](./design/11_Credential_Store_Design.md) | Certificate storage system design |
 | 12 | [HS20 / Passpoint](./design/12_HS20_Design.md) | Hotspot 2.0 auto-discovery design |
 | 13 | [Dual-MCP Playwright](./design/13_Dual_MCP_Playwright_Design.md) | `/playwright-mcp` reverse proxy design |
+| 14 | [Browser Locale and Timezone](./design/14_Browser_Locale_Timezone_Design.md) | Env-var driven Chromium i18n for captive-portal testing |
 | — | [MAC Address Restoration](./design/mac-address-restoration.md) | Docker MAC address decision record |
 
 ### User Stories

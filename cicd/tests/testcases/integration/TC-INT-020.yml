@@ -1,0 +1,45 @@
+id: TC-INT-020
+name: Browser Locale — Partial Config (LANG only, no TZ)
+suite: integration
+priority: 20
+timeout: 60000
+dependencies:
+  - TC-BUILD-002
+tags: [integration, browser, playwright-mcp, i18n, locale, config, US-BROW-005]
+
+steps:
+  - name: Start container with only locale env var
+    command: >
+      docker run --rm -d
+      --name wpa-mcp-ci
+      -p 3002:3000
+      -e WPA_MCP_BROWSER_LANG=de-DE
+      wpa-mcp:ci
+    timeout: 15000
+
+  - name: Wait for server + playwright-mcp to bind
+    command: sleep 5
+
+  - name: Verify locale applied, timezone NOT overridden to Europe/Lisbon
+    command: >
+      MCP_SERVER_URL=http://localhost:3002/playwright-mcp
+      npx tsx cicd/tests/src/mcp-client.ts call-tool browser_evaluate
+      '{"function":"() => ({ language: navigator.language, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })"}'
+    expectPatterns:
+      - 'de-DE'
+    rejectPatterns:
+      - 'Europe/Lisbon'
+
+  - name: Stop container
+    command: docker rm -f wpa-mcp-ci
+
+criteria: |
+  Verify partial config is a valid configuration (US-BROW-005 AC4):
+  - Setting only WPA_MCP_BROWSER_LANG applies `locale` to the contextOptions
+    (expectPattern catches `de-DE` in the response)
+  - `timezoneId` is omitted from the generated config — browser falls back to
+    Chromium / container default rather than a leftover `Europe/Lisbon` from a
+    different test container (reject pattern guards against cross-test leakage)
+
+  Patterns are loose substrings because mcp-client.ts wraps the MCP response in
+  an outer JSON via JSON.stringify, escaping inner quotes.
