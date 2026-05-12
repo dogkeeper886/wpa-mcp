@@ -76,7 +76,16 @@ export async function runScript(
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
-    const context = await browser.newContext();
+    // Same env-var contract as the embedded @playwright/mcp subprocess
+    // (docker/entrypoint.sh) — both browser surfaces should localize the same
+    // way, per US-BROW-005.
+    const contextOptions: Parameters<Browser['newContext']>[0] = {};
+    const browserLocale = process.env.WPA_MCP_BROWSER_LANG;
+    const browserTimezone = process.env.WPA_MCP_BROWSER_TZ;
+    if (browserLocale) contextOptions.locale = browserLocale;
+    if (browserTimezone) contextOptions.timezoneId = browserTimezone;
+
+    const context = await browser.newContext(contextOptions);
     const page = await context.newPage();
 
     // Set default timeout
