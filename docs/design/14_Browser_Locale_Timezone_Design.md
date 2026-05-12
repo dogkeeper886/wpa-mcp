@@ -246,6 +246,7 @@ And every outbound request from the browser carries `Accept-Language: pt-PT`.
 | `docker/entrypoint.sh` | Add a config-generation block before the `playwright-mcp` invocation; conditionally append `--config /tmp/playwright-mcp-config.json` to the flag list. |
 | `docker/run.sh` | Add `-e WPA_MCP_BROWSER_LANG` and `-e WPA_MCP_BROWSER_TZ` to the `docker run` env-passthrough block (alongside `WIFI_INTERFACE`, `WPA_DEBUG_LEVEL`, `PORT`, `PLAYWRIGHT_MCP_PORT`). |
 | `deploy/wpa-mcp.service` | Add two commented-out `Environment=` lines so an operator can uncomment to enable. |
+| `deploy/wpa-mcp-start` | Mirror the `-e WPA_MCP_BROWSER_LANG` / `-e WPA_MCP_BROWSER_TZ` lines into the systemd-invoked startup script (it has its own `docker run` block separate from `docker/run.sh`). |
 | `.env.example` | Add two commented examples with realistic values (`pt-PT`, `Europe/Lisbon`). |
 | `README.md` | Add both vars to the "Environment Variables" table with concrete example values and a one-line note about the "set at `docker run` time" limitation. |
 | `docs/README.md` | Add this design doc (number 14) to the Document Index. |
