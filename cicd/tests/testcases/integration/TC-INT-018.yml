@@ -1,0 +1,47 @@
+id: TC-INT-018
+name: Browser Locale and Timezone — Full Config Applied
+suite: integration
+priority: 18
+timeout: 60000
+dependencies:
+  - TC-BUILD-002
+tags: [integration, browser, playwright-mcp, i18n, locale, timezone, config, US-BROW-005]
+
+steps:
+  - name: Start container with locale + timezone env vars
+    command: >
+      docker run --rm -d
+      --name wpa-mcp-ci
+      -p 3002:3000
+      -e WPA_MCP_BROWSER_LANG=pt-PT
+      -e WPA_MCP_BROWSER_TZ=Europe/Lisbon
+      wpa-mcp:ci
+    timeout: 15000
+
+  - name: Wait for server + playwright-mcp to bind
+    command: sleep 5
+
+  - name: Verify navigator.language, navigator.languages, and Intl timezone
+    command: >
+      MCP_SERVER_URL=http://localhost:3002/playwright-mcp
+      npx tsx cicd/tests/src/mcp-client.ts call-tool browser_evaluate
+      '{"function":"() => ({ language: navigator.language, languages: Array.from(navigator.languages), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })"}'
+    expectPatterns:
+      - 'pt-PT'
+      - 'Europe/Lisbon'
+      - 'languages.*pt-PT'
+
+  - name: Stop container
+    command: docker rm -f wpa-mcp-ci
+
+criteria: |
+  Verify WPA_MCP_BROWSER_LANG and WPA_MCP_BROWSER_TZ flow into Chromium contextOptions:
+  - navigator.language === "pt-PT"  (US-BROW-005 AC1)
+  - navigator.languages array contains "pt-PT"  (US-BROW-005 AC1 + transitive AC2)
+  - Intl.DateTimeFormat().resolvedOptions().timeZone === "Europe/Lisbon"  (US-BROW-005 AC3)
+
+  Patterns are loose substrings because mcp-client.ts wraps the MCP response in an
+  outer JSON via JSON.stringify, escaping inner quotes as \"...\". The `languages.*pt-PT`
+  pattern confirms the navigator.languages array contains the configured locale (not
+  just navigator.language), which is the basis Chromium uses to derive the
+  Accept-Language header — TC-INT-019 verifies that header end-to-end.

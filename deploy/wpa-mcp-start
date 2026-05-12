@@ -52,6 +52,8 @@ docker run --rm -d \
   -e "WIFI_INTERFACE=$IFACE" \
   -e "WPA_DEBUG_LEVEL=$DEBUG_LEVEL" \
   -e "PORT=3000" \
+  -e "WPA_MCP_BROWSER_LANG=${WPA_MCP_BROWSER_LANG:-}" \
+  -e "WPA_MCP_BROWSER_TZ=${WPA_MCP_BROWSER_TZ:-}" \
   "$IMAGE" >/dev/null
 
 PID=$(docker inspect --format '{{.State.Pid}}' "$CONTAINER")

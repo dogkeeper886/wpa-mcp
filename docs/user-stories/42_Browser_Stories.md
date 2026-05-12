@@ -2,8 +2,8 @@
 
 **Status:** Draft
 **Created:** 2026-04-10
-**Updated:** 2026-04-23
-**Source:** [src/tools/browser.ts](../../src/tools/browser.ts) | [src/index.ts](../../src/index.ts) | [03_Browser_Tools](../reference/03_Browser_Tools.md) | [13_Dual_MCP_Playwright_Design](../design/13_Dual_MCP_Playwright_Design.md)
+**Updated:** 2026-05-11
+**Source:** [src/tools/browser.ts](../../src/tools/browser.ts) | [src/index.ts](../../src/index.ts) | [03_Browser_Tools](../reference/03_Browser_Tools.md) | [13_Dual_MCP_Playwright_Design](../design/13_Dual_MCP_Playwright_Design.md) | [14_Browser_Locale_Timezone_Design](../design/14_Browser_Locale_Timezone_Design.md)
 
 ---
 
@@ -131,6 +131,47 @@ As a user driving an unknown captive portal (e.g. WISPr, vendor-specific hotel p
 
 ---
 
+## US-BROW-005: Configure Browser Locale and Timezone for i18n Captive-Portal Testing
+
+**Env vars:** `WPA_MCP_BROWSER_LANG`, `WPA_MCP_BROWSER_TZ` | **Ref:** [14_Browser_Locale_Timezone_Design](../design/14_Browser_Locale_Timezone_Design.md) | **Issue:** [#47](https://github.com/dogkeeper886/wpa-mcp/issues/47)
+
+As a user driving a captive portal through the proxied `wpa-playwright` MCP, I want to set the browser's locale and timezone at container start, so that I can verify the portal popup — and any server-generated artifacts it triggers (OTP / notification emails) — render in the visitor's expected language without hand-patching the container.
+
+### Acceptance Criteria
+
+1. With `WPA_MCP_BROWSER_LANG=pt-PT` set on `docker run`, `browser_evaluate` returning `navigator.language` resolves to `pt-PT` and `navigator.languages` is an array starting with `pt-PT`.
+2. With `WPA_MCP_BROWSER_LANG=pt-PT`, every outbound HTTP request the browser makes carries an `Accept-Language` header beginning with `pt-PT` (exact `pt-PT` or weighted form `pt-PT,pt;q=…`).
+3. With `WPA_MCP_BROWSER_TZ=Europe/Lisbon` set on `docker run`, `browser_evaluate` returning `Intl.DateTimeFormat().resolvedOptions().timeZone` resolves to `Europe/Lisbon`.
+4. Either env var alone is a valid configuration — setting only `WPA_MCP_BROWSER_LANG` applies only `locale`; setting only `WPA_MCP_BROWSER_TZ` applies only `timezoneId`; the other field falls back to Chromium default.
+5. When **both** env vars are unset, the `playwright-mcp` launch arguments are byte-identical to the pre-feature invocation: no config file is generated under `/tmp/`, and no `--config` flag is appended (regression guard).
+6. README's "Environment Variables" table documents both `WPA_MCP_BROWSER_LANG` and `WPA_MCP_BROWSER_TZ` with concrete example values (e.g. `pt-PT`, `Europe/Lisbon`) and a one-line note that they are read at container start.
+7. Setting `WPA_MCP_BROWSER_TZ` to an invalid IANA timezone string (e.g. `Mars/Olympus_Mons`) surfaces as a clear context-creation error on the first `browser_navigate` call rather than failing silently or producing UTC.
+
+### Notes
+
+- **Non-functional constraint — bind at container start.** Playwright's `contextOptions` are applied at Chromium context creation, which is the first `browser_navigate` after the `playwright-mcp` subprocess launches. Changing either env var mid-life has no effect until `make docker-restart` (or equivalent). This is documented as a known limitation, not a bug.
+- **Browser scope only.** These env vars affect *only* the headless Chromium that `playwright-mcp` spawns. They do **not** change the container shell's `LANG` / `LC_ALL`, the output of `date`, or the timestamps in `/tmp/wpa_supplicant_*.log`. A full system locale is out of scope (would require the `locales` apt package + `locale-gen`).
+- **Invalid locale strings are silently accepted.** Chromium does not validate `navigator.language` content; an unknown locale (e.g. `garbage`) is forwarded as-is to the `Accept-Language` header and `navigator.language`. Only invalid timezone IDs throw at context creation (covered by AC7).
+- The implementation lives entirely in `docker/entrypoint.sh` plus passthrough plumbing in `docker/run.sh`, `deploy/wpa-mcp.service`, and `.env.example`. No `src/` changes.
+
+### Test Mapping
+
+| AC# | Test Case | Status |
+|-----|-----------|--------|
+| 1 | TC-INT-018 | Covered |
+| 2 | TC-INT-019 | Covered |
+| 3 | TC-INT-018 | Covered |
+| 4 | TC-INT-020 | Covered |
+| 5 | TC-INT-021 | Covered |
+| 6 | TC-INT-023 | Covered |
+| 7 | TC-INT-022 | Covered |
+
+### Tags
+
+`browser`, `playwright-mcp`, `i18n`, `locale`, `timezone`, `captive-portal`, `config`
+
+---
+
 ## Traceability Matrix
 
 | Story | AC | Test Case | Status |
@@ -139,5 +180,6 @@ As a user driving an unknown captive portal (e.g. WISPr, vendor-specific hotel p
 | US-BROW-002 | AC1-7 | — | No test |
 | US-BROW-003 | AC1-4 | — | No test |
 | US-BROW-004 | AC1-10 | — | No test |
+| US-BROW-005 | AC1-7 | TC-INT-018, TC-INT-019, TC-INT-020, TC-INT-021, TC-INT-022, TC-INT-023 | Covered |
 
-**Coverage:** 0/24 ACs have test coverage.
+**Coverage:** 7/31 ACs have test coverage (24 pre-existing stories still have no tests; all 7 ACs of US-BROW-005 covered by 6 new TC-INT specs that run against the wpa-mcp:ci image — all green at 2026-05-12).

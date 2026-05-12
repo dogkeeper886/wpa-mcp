@@ -1,0 +1,30 @@
+id: TC-INT-023
+name: Browser Locale and Timezone — README Documents Env Vars
+suite: integration
+priority: 23
+timeout: 10000
+dependencies: []
+tags: [integration, docs, i18n, US-BROW-005]
+
+steps:
+  - name: Verify README's Environment Variables table includes both env vars
+    command: grep -E 'WPA_MCP_BROWSER_LANG|WPA_MCP_BROWSER_TZ' README.md
+    expectPatterns:
+      - 'WPA_MCP_BROWSER_LANG'
+      - 'WPA_MCP_BROWSER_TZ'
+
+  - name: Verify README mentions example values (pt-PT and Europe/Lisbon)
+    command: grep -E 'pt-PT|Europe/Lisbon' README.md
+    expectPatterns:
+      - 'pt-PT'
+      - 'Europe/Lisbon'
+
+criteria: |
+  Verify both new env vars and their example values are documented in README.md
+  (US-BROW-005 AC6).
+
+  This is a paper-trail AC — without it, an operator pulling the image won't
+  discover the i18n knobs. The grep is two-pass so a failure points clearly at
+  either missing variable names or missing example values.
+
+  No container required; this is a pure repository-content check.

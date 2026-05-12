@@ -70,6 +70,41 @@ echo "entrypoint: starting Microsoft Playwright MCP on 127.0.0.1:${PLAYWRIGHT_MC
 #                                     is always writable.
 PLAYWRIGHT_MCP_OUTPUT_DIR=/tmp/playwright-mcp-output
 mkdir -p "$PLAYWRIGHT_MCP_OUTPUT_DIR"
+
+# Optional i18n knobs for the headless Chromium spawned by playwright-mcp.
+# When either env var is set, generate a minimal config JSON and pass it via
+# --config. When both are unset, no config file is generated and no --config
+# flag is appended — the launch is byte-identical to the pre-feature
+# invocation. See docs/design/14_Browser_Locale_Timezone_Design.md.
+PW_CONFIG_FLAG=""
+if [[ -n "${WPA_MCP_BROWSER_LANG:-}" || -n "${WPA_MCP_BROWSER_TZ:-}" ]]; then
+  PW_CONFIG_PATH=/tmp/playwright-mcp-config.json
+
+  # Build the inner contextOptions field-by-field so a one-of-two config
+  # stays valid JSON (no trailing comma, no orphan field).
+  PW_CONTEXT_OPTS=""
+  if [[ -n "${WPA_MCP_BROWSER_LANG:-}" ]]; then
+    PW_CONTEXT_OPTS="\"locale\": \"${WPA_MCP_BROWSER_LANG}\""
+  fi
+  if [[ -n "${WPA_MCP_BROWSER_TZ:-}" ]]; then
+    if [[ -n "$PW_CONTEXT_OPTS" ]]; then
+      PW_CONTEXT_OPTS="${PW_CONTEXT_OPTS}, "
+    fi
+    PW_CONTEXT_OPTS="${PW_CONTEXT_OPTS}\"timezoneId\": \"${WPA_MCP_BROWSER_TZ}\""
+  fi
+
+  cat > "$PW_CONFIG_PATH" <<EOF
+{ "browser": { "contextOptions": { ${PW_CONTEXT_OPTS} } } }
+EOF
+
+  echo "entrypoint: generated playwright-mcp config at $PW_CONFIG_PATH (locale=${WPA_MCP_BROWSER_LANG:-<default>}, timezoneId=${WPA_MCP_BROWSER_TZ:-<default>})"
+  PW_CONFIG_FLAG="--config $PW_CONFIG_PATH"
+fi
+
+# NB: $PW_CONFIG_FLAG is intentionally unquoted so that when empty it
+# expands to zero arguments, and when set it word-splits into two args
+# (`--config` and the path). The path is hardcoded so word-splitting is
+# safe; values from the env vars only appear inside the JSON, not the flag.
 playwright-mcp \
   --headless \
   --browser chromium \
@@ -78,6 +113,7 @@ playwright-mcp \
   --output-dir "$PLAYWRIGHT_MCP_OUTPUT_DIR" \
   --port "${PLAYWRIGHT_MCP_PORT}" \
   --host 127.0.0.1 \
+  $PW_CONFIG_FLAG \
   > /tmp/playwright-mcp.log 2>&1 &
 PLAYWRIGHT_MCP_PID=$!
 

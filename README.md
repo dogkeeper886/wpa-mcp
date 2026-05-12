@@ -325,6 +325,10 @@ Copy `.env.example` to `.env`. Key settings:
 | `WIFI_INTERFACE` | wlan0 | WiFi interface name |
 | `WPA_CONFIG_PATH` | /etc/wpa_supplicant/wpa_supplicant.conf | wpa_supplicant config |
 | `WPA_DEBUG_LEVEL` | 2 | Debug verbosity (1-3) |
+| `WPA_MCP_BROWSER_LANG` | _(unset)_ | BCP-47 locale for the in-container browser, e.g. `pt-PT`. Sets `navigator.language`, the `Accept-Language` header, and locale-aware `Intl` formatting. Read at container start — changing requires `make docker-restart`. |
+| `WPA_MCP_BROWSER_TZ` | _(unset)_ | IANA timezone for the in-container browser, e.g. `Europe/Lisbon`. Sets `Intl.DateTimeFormat().resolvedOptions().timeZone`. Browser-scoped only — does not change the container shell clock or log timestamps. Read at container start. |
+
+For i18n captive-portal testing, see [docs/design/14_Browser_Locale_Timezone_Design.md](docs/design/14_Browser_Locale_Timezone_Design.md).
 
 ---
 
