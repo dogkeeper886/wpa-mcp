@@ -106,7 +106,11 @@ fi
 # --- Start container (bridge network, port forwarded) ---
 
 echo "Starting container '$CONTAINER_NAME' from image '$IMAGE'..."
-docker run --rm -d \
+# --init: run tini as PID 1 so orphaned chromium/sudo children get reaped
+# instead of accumulating as zombies. The playwright-mcp subprocess can
+# spawn many short-lived chromium processes during captive-portal flows;
+# without a reaper they pile up under PID 1 (node) and mask real signals.
+docker run --rm -d --init \
   --name "$CONTAINER_NAME" \
   --cap-add NET_ADMIN \
   --cap-add NET_RAW \

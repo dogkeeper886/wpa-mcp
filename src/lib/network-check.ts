@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as dns from 'dns';
+import * as http from 'http';
 import * as https from 'https';
 import type { PingResult, DnsResult } from '../types.js';
 
@@ -146,7 +147,7 @@ function httpGet(
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
     const isHttps = urlObj.protocol === 'https:';
-    const httpModule = isHttps ? https : require('http');
+    const httpModule = isHttps ? https : http;
 
     const options = {
       hostname: urlObj.hostname,
