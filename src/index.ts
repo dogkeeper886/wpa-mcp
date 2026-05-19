@@ -1,4 +1,6 @@
 import "dotenv/config";
+import crypto from "node:crypto";
+import type { ClientRequest, IncomingMessage, ServerResponse } from "node:http";
 import express, { Request, Response } from "express";
 import {
   createProxyMiddleware,
@@ -62,6 +64,90 @@ registerBrowserTools(mcpServer);
 registerConnectivityTools(mcpServer);
 registerCredentialTools(mcpServer);
 
+// Structured one-line JSON logger. Keeps a single shape across req / res /
+// error so log lines for the same call can be joined on req_id when triaging
+// "agent stuck in X" or captive-portal sessions.
+const logEvent = (
+  level: "info" | "warn" | "error",
+  msg: string,
+  ctx: Record<string, unknown>,
+): void => {
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    level,
+    msg,
+    ...ctx,
+  });
+  if (level === "error") console.error(line);
+  else console.log(line);
+};
+
+// Per-request scratch slots stashed on the express req object. Symbols
+// avoid colliding with any field http-proxy-middleware or express attach.
+const REQ_ID = Symbol("wpaReqId");
+const REQ_START_MS = Symbol("wpaStartMs");
+
+type AnnotatedReq = IncomingMessage & {
+  body?: unknown;
+  [REQ_ID]?: string;
+  [REQ_START_MS]?: number;
+};
+
+// Pull `method` and (for tools/call) `params.name` out of a JSON-RPC body.
+// Without `tool_name`, every browser_*/wifi_* call shows up as a generic
+// "tools/call" line and a stuck agent is indistinguishable from a working one.
+const extractJsonrpcInfo = (
+  body: unknown,
+): { method?: string; toolName?: string } => {
+  if (!body || typeof body !== "object") return {};
+  const methodVal = (body as { method?: unknown }).method;
+  const method = typeof methodVal === "string" ? methodVal : undefined;
+  let toolName: string | undefined;
+  if (method === "tools/call") {
+    const params = (body as { params?: unknown }).params;
+    if (params && typeof params === "object") {
+      const nameVal = (params as { name?: unknown }).name;
+      if (typeof nameVal === "string") toolName = nameVal;
+    }
+  }
+  return { method, toolName };
+};
+
+// Express middleware: tag every /mcp request with a req_id, log entry on
+// arrival and exit on response finish. Same shape as the /playwright-mcp
+// proxy logs so a single `grep req_id=...` joins both endpoints.
+const logMcpMiddleware = (
+  req: Request,
+  res: Response,
+  next: () => void,
+): void => {
+  const annotated = req as unknown as AnnotatedReq;
+  const reqId = crypto.randomBytes(4).toString("hex");
+  annotated[REQ_ID] = reqId;
+  annotated[REQ_START_MS] = Date.now();
+
+  const { method: jsonrpcMethod, toolName } = extractJsonrpcInfo(req.body);
+
+  logEvent("info", "wpa-mcp req", {
+    req_id: reqId,
+    http_method: req.method,
+    jsonrpc_method: jsonrpcMethod,
+    tool_name: toolName,
+  });
+
+  res.on("finish", () => {
+    logEvent("info", "wpa-mcp res", {
+      req_id: reqId,
+      status: res.statusCode,
+      elapsed_ms: Date.now() - (annotated[REQ_START_MS] ?? Date.now()),
+    });
+  });
+
+  next();
+};
+
+app.use("/mcp", logMcpMiddleware);
+
 // MCP endpoint using Streamable HTTP Transport
 app.post("/mcp", async (req: Request, res: Response) => {
   try {
@@ -76,7 +162,11 @@ app.post("/mcp", async (req: Request, res: Response) => {
     await mcpServer.connect(transport);
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
-    console.error("MCP request error:", error);
+    const reqId = (req as unknown as AnnotatedReq)[REQ_ID];
+    logEvent("error", "wpa-mcp handler error", {
+      req_id: reqId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
     }
@@ -100,6 +190,54 @@ app.delete("/mcp", (_req: Request, res: Response) => {
     id: null,
   });
 });
+
+const logProxyReq = (
+  proxyReq: ClientRequest,
+  req: IncomingMessage,
+  _res: ServerResponse,
+): void => {
+  const annotated = req as AnnotatedReq;
+  const reqId = crypto.randomBytes(4).toString("hex");
+  annotated[REQ_ID] = reqId;
+  annotated[REQ_START_MS] = Date.now();
+
+  const { method: jsonrpcMethod, toolName } = extractJsonrpcInfo(annotated.body);
+
+  logEvent("info", "playwright-mcp proxy req", {
+    req_id: reqId,
+    http_method: req.method,
+    jsonrpc_method: jsonrpcMethod,
+    tool_name: toolName,
+  });
+
+  // Echo the id upstream so the subprocess logs (once we wire DEBUG=pw:*)
+  // can be correlated with proxy lines.
+  proxyReq.setHeader("x-wpa-req-id", reqId);
+
+  // Preserve existing body-forwarding behaviour for POSTs.
+  fixRequestBody(proxyReq, req as Request);
+};
+
+const logProxyRes = (proxyRes: IncomingMessage, req: IncomingMessage): void => {
+  const annotated = req as AnnotatedReq;
+  const startMs = annotated[REQ_START_MS];
+  logEvent("info", "playwright-mcp proxy res", {
+    req_id: annotated[REQ_ID],
+    status: proxyRes.statusCode,
+    elapsed_ms: typeof startMs === "number" ? Date.now() - startMs : undefined,
+  });
+};
+
+const logProxyError = (err: Error, req: IncomingMessage): void => {
+  const annotated = req as AnnotatedReq;
+  const startMs = annotated[REQ_START_MS];
+  logEvent("error", "playwright-mcp proxy error", {
+    req_id: annotated[REQ_ID],
+    error: err.message,
+    code: (err as NodeJS.ErrnoException).code,
+    elapsed_ms: typeof startMs === "number" ? Date.now() - startMs : undefined,
+  });
+};
 
 // Reverse proxy to the in-container Microsoft Playwright MCP server.
 //
@@ -125,58 +263,22 @@ const playwrightMcpPort = process.env.PLAYWRIGHT_MCP_PORT || "8931";
 // check on the Host header and rejects anything else.
 const playwrightMcpTarget = `http://localhost:${playwrightMcpPort}`;
 
+const initializeResponseInterceptor = responseInterceptor(
+  async (responseBuffer, proxyRes, req, _res) => {
+    logProxyRes(proxyRes as IncomingMessage, req as IncomingMessage);
+    return await rewriteInitializeBody(responseBuffer, proxyRes);
+  },
+);
+
 const playwrightInitializeProxy = createProxyMiddleware({
   target: playwrightMcpTarget,
   changeOrigin: true,
   pathRewrite: () => "/mcp",
   selfHandleResponse: true,
   on: {
-    proxyReq: fixRequestBody,
-    proxyRes: responseInterceptor(
-      async (responseBuffer, proxyRes, _req, _res) => {
-        const contentType = String(proxyRes.headers["content-type"] || "");
-        const body = responseBuffer.toString("utf8");
-
-        // `serverInfo` in result marks an `initialize` JSON-RPC response.
-        const injectIfInitialize = (jsonStr: string): string | null => {
-          try {
-            const obj = JSON.parse(jsonStr);
-            if (obj?.result?.serverInfo) {
-              obj.result.instructions = WPA_PLAYWRIGHT_INSTRUCTIONS;
-              return JSON.stringify(obj);
-            }
-          } catch {
-            /* not JSON — ignore */
-          }
-          return null;
-        };
-
-        // Case 1: plain JSON body (application/json).
-        if (contentType.includes("application/json")) {
-          const rewritten = injectIfInitialize(body);
-          return rewritten ?? responseBuffer;
-        }
-
-        // Case 2: SSE body (text/event-stream) — MCP Streamable HTTP can
-        // return results framed as "event: message\ndata: <json>\n\n".
-        // Inspect every `data:` line; rewrite only the one whose JSON
-        // matches the initialize marker. The `g` flag is required so
-        // the callback sees each line even when the payload has multiple
-        // events (heartbeats, batched notifications, etc.).
-        if (contentType.includes("text/event-stream")) {
-          const rewritten = body.replace(
-            /^data: (.*)$/gm,
-            (match, dataJson: string) => {
-              const newJson = injectIfInitialize(dataJson);
-              return newJson ? `data: ${newJson}` : match;
-            },
-          );
-          return rewritten === body ? responseBuffer : rewritten;
-        }
-
-        return responseBuffer;
-      },
-    ),
+    proxyReq: logProxyReq,
+    proxyRes: initializeResponseInterceptor,
+    error: logProxyError,
   },
 });
 
@@ -186,9 +288,61 @@ const playwrightStreamingProxy = createProxyMiddleware({
   pathRewrite: () => "/mcp",
   // No selfHandleResponse — responses stream through naturally.
   on: {
-    proxyReq: fixRequestBody,
+    proxyReq: logProxyReq,
+    proxyRes: logProxyRes,
+    error: logProxyError,
   },
 });
+
+// Extracted from the inline interceptor so the proxy declaration above stays
+// scannable. Same behaviour as before: rewrite the `initialize` JSON-RPC
+// response (plain JSON or SSE-framed) to inject `result.instructions`.
+async function rewriteInitializeBody(
+  responseBuffer: Buffer,
+  proxyRes: IncomingMessage,
+): Promise<Buffer | string> {
+  const contentType = String(proxyRes.headers["content-type"] || "");
+  const body = responseBuffer.toString("utf8");
+
+  // `serverInfo` in result marks an `initialize` JSON-RPC response.
+  const injectIfInitialize = (jsonStr: string): string | null => {
+    try {
+      const obj = JSON.parse(jsonStr);
+      if (obj?.result?.serverInfo) {
+        obj.result.instructions = WPA_PLAYWRIGHT_INSTRUCTIONS;
+        return JSON.stringify(obj);
+      }
+    } catch {
+      /* not JSON — ignore */
+    }
+    return null;
+  };
+
+  // Case 1: plain JSON body (application/json).
+  if (contentType.includes("application/json")) {
+    const rewritten = injectIfInitialize(body);
+    return rewritten ?? responseBuffer;
+  }
+
+  // Case 2: SSE body (text/event-stream) — MCP Streamable HTTP can
+  // return results framed as "event: message\ndata: <json>\n\n".
+  // Inspect every `data:` line; rewrite only the one whose JSON
+  // matches the initialize marker. The `g` flag is required so
+  // the callback sees each line even when the payload has multiple
+  // events (heartbeats, batched notifications, etc.).
+  if (contentType.includes("text/event-stream")) {
+    const rewritten = body.replace(
+      /^data: (.*)$/gm,
+      (match, dataJson: string) => {
+        const newJson = injectIfInitialize(dataJson);
+        return newJson ? `data: ${newJson}` : match;
+      },
+    );
+    return rewritten === body ? responseBuffer : rewritten;
+  }
+
+  return responseBuffer;
+}
 
 app.use("/playwright-mcp", (req, res, next) => {
   // Route to buffered-and-injected proxy only when the JSON-RPC method

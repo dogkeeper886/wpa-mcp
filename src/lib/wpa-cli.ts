@@ -23,19 +23,23 @@ export class WpaCli {
     const currentStatus = await this.status();
     const isScanning = currentStatus.wpaState === "SCANNING";
 
+    let didTriggerScan = false;
     if (!isScanning) {
-      // Initiate scan
-      const scanResult = await this.run("scan");
-      if (!scanResult.includes("OK")) {
-        throw new Error(`Scan failed: ${scanResult}`);
-      }
-
-      // Brief delay for state transition
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await this.triggerScan();
+      didTriggerScan = true;
     }
 
     // Poll for scan results instead of fixed wait
-    const { found } = await this.waitForScanResults(timeoutMs);
+    let { found } = await this.waitForScanResults(timeoutMs);
+
+    // Stuck-radio recovery: if we skipped the trigger because wpa_supplicant
+    // claimed to already be SCANNING but the cache stayed empty for the full
+    // poll window, the driver is wedged (seen after disconnect + MAC change).
+    // Issue a fresh `scan` to kick it loose and poll again.
+    if (!found && !didTriggerScan) {
+      await this.triggerScan();
+      ({ found } = await this.waitForScanResults(timeoutMs));
+    }
 
     if (!found) {
       // Return empty array if no results found (not an error, just no networks)
@@ -46,6 +50,17 @@ export class WpaCli {
     // buffer (~4 KB) truncates the monolithic `scan_results` output at roughly
     // 55 BSSes, silently dropping nearby APs in dense RF environments.
     return this.fetchBssEntries();
+  }
+
+  private async triggerScan(): Promise<void> {
+    const scanResult = await this.run("scan");
+    // FAIL-BUSY = a scan is already in flight; its results will still
+    // populate the cache, so treat it as success rather than aborting.
+    if (!scanResult.includes("OK") && !scanResult.includes("FAIL-BUSY")) {
+      throw new Error(`Scan failed: ${scanResult}`);
+    }
+    // Brief delay for state transition into SCANNING
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   /**

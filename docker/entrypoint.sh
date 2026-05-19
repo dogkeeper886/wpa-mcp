@@ -121,10 +121,19 @@ EOF
   PW_CONFIG_FLAG="--config $PW_CONFIG_PATH"
 fi
 
+# Observability: surface playwright-mcp output to the container's stdout
+# (so `docker logs wpa-mcp` shows it) AND keep a local copy in
+# /tmp/playwright-mcp.log. `> >(tee FILE)` uses process substitution so the
+# subprocess's stdout/stderr fan out to both; `$!` still captures the
+# playwright-mcp pid (not tee's). DEBUG=pw:browser*,pw:protocol* turns on
+# Playwright's own page-crash / target-closed / disconnect events so a
+# browser context dying mid-captive-portal is visible instead of silent.
+#
 # NB: $PW_CONFIG_FLAG is intentionally unquoted so that when empty it
 # expands to zero arguments, and when set it word-splits into two args
 # (`--config` and the path). The path is hardcoded so word-splitting is
 # safe; values from the env vars only appear inside the JSON, not the flag.
+DEBUG="${WPA_MCP_PLAYWRIGHT_DEBUG:-pw:browser*}" \
 playwright-mcp \
   --headless \
   --browser chromium \
@@ -134,7 +143,7 @@ playwright-mcp \
   --port "${PLAYWRIGHT_MCP_PORT}" \
   --host 127.0.0.1 \
   $PW_CONFIG_FLAG \
-  > /tmp/playwright-mcp.log 2>&1 &
+  > >(tee /tmp/playwright-mcp.log) 2>&1 &
 PLAYWRIGHT_MCP_PID=$!
 
 # Sanity-check: wait briefly for playwright-mcp to bind so a failure to
