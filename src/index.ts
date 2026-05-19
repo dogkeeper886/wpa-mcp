@@ -135,13 +135,22 @@ const logMcpMiddleware = (
     tool_name: toolName,
   });
 
-  res.on("finish", () => {
+  // Listen to BOTH `finish` (normal completion) and `close` (client dropped
+  // connection mid-response). Without `close`, a wedged tool call that the
+  // agent abandons would leave no exit line — exactly the blind spot this
+  // logging is meant to remove. Guard with `logged` so we only emit once.
+  let logged = false;
+  const logRes = () => {
+    if (logged) return;
+    logged = true;
     logEvent("info", "wpa-mcp res", {
       req_id: reqId,
       status: res.statusCode,
       elapsed_ms: Date.now() - (annotated[REQ_START_MS] ?? Date.now()),
     });
-  });
+  };
+  res.on("finish", logRes);
+  res.on("close", logRes);
 
   next();
 };

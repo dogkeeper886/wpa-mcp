@@ -125,9 +125,10 @@ fi
 # (so `docker logs wpa-mcp` shows it) AND keep a local copy in
 # /tmp/playwright-mcp.log. `> >(tee FILE)` uses process substitution so the
 # subprocess's stdout/stderr fan out to both; `$!` still captures the
-# playwright-mcp pid (not tee's). DEBUG=pw:browser*,pw:protocol* turns on
-# Playwright's own page-crash / target-closed / disconnect events so a
-# browser context dying mid-captive-portal is visible instead of silent.
+# playwright-mcp pid (not tee's). DEBUG=pw:browser* turns on Playwright's
+# own page-crash / target-closed / disconnect events so a browser context
+# dying mid-captive-portal is visible instead of silent. (pw:protocol* is
+# omitted on purpose — it logs every CDP frame and drowns the signal.)
 #
 # NB: $PW_CONFIG_FLAG is intentionally unquoted so that when empty it
 # expands to zero arguments, and when set it word-splits into two args
