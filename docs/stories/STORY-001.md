@@ -43,3 +43,4 @@ and carry a diagram for each key idea, while deep dives stay in `docs/`.
 - Plan: #63
 - Issues: #64, #65
 - PR: #66
+- Completed: 2026-06-15 (PR #66 merged — README rewritten with 3 embedded diagrams)
