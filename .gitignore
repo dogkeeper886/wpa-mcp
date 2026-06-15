@@ -26,5 +26,6 @@ npm-debug.log*
 
 # Test coverage
 coverage/
-certs/
+certs/*
+!certs/.gitkeep
 cicd/results/
