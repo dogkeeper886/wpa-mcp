@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect width="900" height="470" fill="#ffffff"/>
+
+  <text x="450" y="34" text-anchor="middle" font-size="20" font-weight="bold" fill="#1f2328">WiFi PHY moved into the container's network namespace</text>
+  <text x="450" y="56" text-anchor="middle" font-size="13" fill="#57606a">iw phy set netns — the WiFi interface leaves the host and lives only in the container</text>
+
+  <!-- HOST namespace -->
+  <rect x="30" y="80" width="380" height="210" rx="8" fill="#ddf4ff" stroke="#1f6feb" stroke-width="2"/>
+  <text x="50" y="108" font-size="15" font-weight="bold" fill="#0a3069">HOST network namespace</text>
+
+  <rect x="50" y="124" width="200" height="34" rx="5" fill="#ffffff" stroke="#54aeff"/>
+  <text x="62" y="146" font-size="13" fill="#1f2328">eth0: 10.0.0.50  (wired)</text>
+
+  <text x="50" y="184" font-size="12.5" fill="#1f2328">ip route:</text>
+  <text x="62" y="204" font-size="12.5" fill="#57606a">default via 10.0.0.1 dev eth0</text>
+  <text x="62" y="222" font-size="12.5" fill="#57606a">172.17.0.0/16 dev docker0</text>
+  <text x="62" y="244" font-size="12.5" font-style="italic" fill="#bc4c00">(no wlan0 — phy moved out)</text>
+  <text x="50" y="276" font-size="13" font-weight="bold" fill="#1a7f37">Host routing: UNAFFECTED</text>
+
+  <!-- CONTAINER namespace -->
+  <rect x="490" y="80" width="380" height="210" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="2"/>
+  <text x="510" y="108" font-size="15" font-weight="bold" fill="#0a3622">CONTAINER network namespace</text>
+
+  <rect x="510" y="124" width="240" height="34" rx="5" fill="#ffffff" stroke="#4ac26b"/>
+  <text x="522" y="146" font-size="13" fill="#1f2328">eth0: 172.17.0.2 (bridge, no default)</text>
+  <rect x="510" y="162" width="240" height="34" rx="5" fill="#ffffff" stroke="#4ac26b"/>
+  <text x="522" y="184" font-size="13" fill="#1f2328">wlan0: 192.168.1.42  (WiFi)</text>
+
+  <text x="510" y="222" font-size="12.5" fill="#1f2328">ip route:</text>
+  <text x="522" y="242" font-size="12.5" fill="#57606a">default via 192.168.1.1 dev wlan0</text>
+  <text x="522" y="260" font-size="12.5" fill="#57606a">172.17.0.0/16 dev eth0  (MCP reply path)</text>
+  <text x="522" y="278" font-size="12.5" fill="#57606a">192.168.1.0/24 dev wlan0</text>
+
+  <!-- phy move arrow -->
+  <line x1="410" y1="150" x2="488" y2="150" stroke="#57606a" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="449" y="138" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#1f2328">iw phy</text>
+  <text x="449" y="170" text-anchor="middle" font-size="11.5" fill="#57606a">set netns</text>
+
+  <!-- bottom: clients / data path -->
+  <rect x="30" y="340" width="200" height="44" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="130" y="367" text-anchor="middle" font-size="13" fill="#1f2328">MCP Client (host)</text>
+
+  <line x1="230" y1="362" x2="488" y2="362" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="360" y="352" text-anchor="middle" font-size="12" fill="#57606a">host:3000 → container:3000 (Docker bridge)</text>
+
+  <rect x="490" y="340" width="380" height="100" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="510" y="366" font-size="13" font-weight="bold" fill="#1f2328">wpa-mcp server + wpa_supplicant + dhclient</text>
+  <line x1="560" y1="378" x2="560" y2="412" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="575" y="403" font-size="12.5" fill="#57606a">wlan0 → joined WLAN (all DHCP/routes stay inside)</text>
+
+  <text x="450" y="462" text-anchor="middle" font-size="11.5" font-style="italic" fill="#57606a">Kernel driver stays on the host; the phy + interface exist only in the container.</text>
+</svg>
