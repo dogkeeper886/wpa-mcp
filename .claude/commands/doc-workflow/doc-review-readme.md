@@ -31,13 +31,19 @@ Fits in the doc-workflow:
         ├─► Step 2: True to the code (the accuracy half)
         │   - [ ] Every command, endpoint, env var, tool name, and path is verified
         │         against the code/build files — no invented flags. Grep the source.
+        │         Verify against the code, NOT against sibling docs, which may be stale.
         │   - [ ] Every link resolves to a file that exists (docs, images, configs).
-        │   - [ ] Embedded images exist and render; diagrams match what the code does.
+        │   - [ ] Diagrams are committed images (PNG) with their SVG source and a
+        │         reproducible render step (script / make target) beside them — NOT
+        │         Mermaid or any inline/fenced diagram block, so they render on GitHub
+        │         with no build step. Each diagram exists, renders, and matches the code.
         │
         ├─► Step 3: Delivers for the reader
         │   - [ ] A newcomer gets what it is, why it's distinctive, and how to run it
         │         without first reading docs/.
-        │   - [ ] Leads with the point; deep reference is linked, not inlined.
+        │   - [ ] Leads with the key point — the organizing idea found by studying the
+        │         code; for a multi-part repo, how the parts compose, not a bare list.
+        │         Deep reference is linked, not inlined.
         │   - [ ] Follows a recognized best-practice structure.
         │
         └─► Step 4: Decision
@@ -51,6 +57,8 @@ Fits in the doc-workflow:
 
 - Reuses `reviewing-phrasing` + `reviewing-typography` (the human-read doc review) and
   adds the accuracy pass a README needs — it does not duplicate those skills.
+- Enforces what the producer promises: SVG→PNG diagrams (no Mermaid) and a README that
+  leads with the key point. If the producer's rules change, update this pass to match.
 - Read-mostly: reads the README + the code; on REVISE, edits the README in place.
 - Review paired with the producer `/doc-gen-readme` (see .claude/rules/doc-workflow.md).
 ```

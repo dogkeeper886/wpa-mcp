@@ -29,18 +29,33 @@ This writes the README only. It does NOT open a PR.
         │   - Search for README best practices for THIS YEAR: section order, badges,
         │     where visuals go, what to cut. Note the sources.
         │   - This step keeps the generator current instead of freezing today's taste.
+        │   - Scope: research informs section order and where visuals sit — NOT the
+        │     diagram file format. That is fixed by Step 4 (SVG source → rendered PNG);
+        │     do not let a search result (e.g. "use Mermaid") override it.
         │
-        ├─► Step 2: Study the project for its key ideas
-        │   - Read the existing README, docs/, architecture/design notes, the build
-        │     files, and the source layout.
-        │   - Name the few ideas that make the project distinctive — the ones a diagram
-        │     explains better than prose. Rank them; recommend a focused set (≈3), not
-        │     every idea. Deep dives stay in docs/ and get linked.
+        ├─► Step 2: Study the project — from the ground truth — to find its key point
+        │   - Study from ground truth FIRST, not the existing docs. Read what the project
+        │     actually is from its real artifacts — entry points, build/compose/package
+        │     files, scripts, config, the top-level layout — and trace how its parts
+        │     connect and flow. Where ground truth lives varies by project; those are
+        │     examples, not a checklist.
+        │   - Treat any existing README/docs/notes as CLAIMS to verify against the code,
+        │     not as truth. They may be stale or aspirational — derive the real model from
+        │     the code, don't inherit theirs.
+        │   - Find the key point BEFORE listing features: the one organizing idea a
+        │     newcomer must grasp first — what this is, why it exists, and how its parts
+        │     form one whole. For a multi-part repo that is usually how the components
+        │     compose and depend on each other; for a single tool, the core abstraction or
+        │     main flow.
+        │   - THEN name the few distinctive ideas to lead with — the ones a diagram
+        │     explains better than prose — grounded in that key point. Rank them; recommend
+        │     a focused set (≈3), not every idea. Deep dives stay in docs/ and get linked.
         │
         ├─► Step 3: Draft the structure
         │   - Adapt the researched structure to the project: title + one-liner + badges
-        │     → what it is / problem → how it works (the key ideas) → features →
-        │     quickstart → usage/config → reference → docs index → license.
+        │     → what it is / problem → how it works (lead with the key point — for a
+        │       multi-part repo, how the parts compose — then the distinctive ideas) →
+        │       features → quickstart → usage/config → reference → docs index → license.
         │   - Lead with the point; keep it scannable; link out rather than inline.
         │
         ├─► Step 4: Diagrams (optional — one per key idea)
