@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "wpa-mcp": {
+      "type": "http",
+      "url": "http://localhost:3000/mcp"
+    },
+    "wpa-playwright": {
+      "type": "http",
+      "url": "http://localhost:3000/playwright-mcp"
+    }
+  }
+}
