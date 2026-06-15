@@ -42,3 +42,4 @@ and carry a diagram for each key idea, while deep dives stay in `docs/`.
 - Created: 2026-06-15
 - Plan: #63
 - Issues: #64, #65
+- PR: #66
