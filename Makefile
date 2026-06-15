@@ -1,7 +1,7 @@
 # wpa-mcp Makefile
 # Development build and Docker deployment
 
-.PHONY: build clean help upload-certs nm-unmanage nm-restore docker-build docker-start docker-stop docker-restart docker-logs docker-status docker-shell install-systemd uninstall-systemd
+.PHONY: build clean help diagrams upload-certs nm-unmanage nm-restore docker-build docker-start docker-stop docker-restart docker-logs docker-status docker-shell install-systemd uninstall-systemd
 
 # Load .env if exists
 -include .env
@@ -18,6 +18,7 @@ help:
 	@echo "  npm run build    - Compile TypeScript"
 	@echo "  npm run dev      - Watch mode"
 	@echo "  clean            - Remove dist/"
+	@echo "  diagrams         - Render docs/images/*.svg to PNG (needs rsvg-convert)"
 	@echo ""
 	@echo "Docker (requires real WiFi hardware):"
 	@echo "  docker-build     - Build Docker image"
@@ -43,6 +44,10 @@ help:
 clean:
 	@rm -rf dist/
 	@echo "Cleaned dist/"
+
+# Render docs/images/*.svg → *.png (README embeds the PNGs; SVG is the source)
+diagrams:
+	@scripts/render-diagrams.sh
 
 # Docker targets (proxy to docker/Makefile)
 docker-build:

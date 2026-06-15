@@ -1,27 +1,66 @@
 # wpa-mcp
 
-MCP (Model Context Protocol) server for WiFi control via wpa_supplicant. Enables Claude and other MCP clients to scan, connect, disconnect, debug, and automate WiFi networks on Linux -- including WPA-PSK, WPA2-Enterprise, EAP-TLS, captive portal handling, and MAC randomization.
+**Control Linux WiFi from Claude and other MCP clients** — scan, connect, debug, and automate networks (WPA-PSK, WPA2-Enterprise, EAP-TLS, Hotspot 2.0, captive portals, MAC randomization) over the Model Context Protocol.
 
-**Docker image:** [`dogkeeper886/wpa-mcp`](https://hub.docker.com/r/dogkeeper886/wpa-mcp) — pull `:2.0.0` or `:latest` instead of building locally.
+[![Docker Image Version](https://img.shields.io/docker/v/dogkeeper886/wpa-mcp?sort=semver&logo=docker&label=docker%20hub)](https://hub.docker.com/r/dogkeeper886/wpa-mcp)
+[![Docker Pulls](https://img.shields.io/docker/pulls/dogkeeper886/wpa-mcp?logo=docker)](https://hub.docker.com/r/dogkeeper886/wpa-mcp)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
+[![MCP](https://img.shields.io/badge/Model_Context_Protocol-server-5A4FCF)](https://modelcontextprotocol.io)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-informational?logo=linux&logoColor=white)](#prerequisites)
+
+wpa-mcp wraps `wpa_supplicant` and `dhclient` in 23 MCP tools, so an AI agent can drive a
+real WiFi adapter — join networks, authenticate against enterprise RADIUS, work through
+captive portals with a real browser, and diagnose failures from the supplicant logs. It
+runs in a Docker container that holds the WiFi device in its **own network namespace**, so
+none of that touches the host's routing table.
+
+```
+"Scan for networks"        → wifi_scan
+"Connect to CoffeeShop"    → wifi_connect → DHCP → ip address
+"Why did that fail?"       → wifi_get_debug_logs filter=eap
+```
+
+- [How it works](#how-it-works)
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Register with an MCP client](#register-with-an-mcp-client)
+- [Tools](#tools)
+- [Configuration](#configuration)
+- [EAP-TLS certificates](#eap-tls-certificates)
+- [Documentation](#documentation)
 
 ---
 
-## Architecture
+## How it works
 
-```
-  MCP Client                    wpa-mcp Server                   System
-  (Claude Code /                (Express + MCP SDK)
-   Claude Desktop)
-       │                              │                              │
-       │  HTTP POST /mcp              │                              │
-       │─────────────────────────────►│                              │
-       │                              │  wifi_connect(ssid, psk)     │
-       │                              │─────────────────────────────►│ wpa_supplicant
-       │                              │                              │ dhclient
-       │                              │  { success, ip_address }     │
-       │  ◄─────────────────────────  │  ◄───────────────────────────│
-       │                              │                              │
-```
+Three ideas make wpa-mcp different from "shell out to `wpa_cli`". Each is worth a picture.
+
+### 1. The WiFi device lives in the container's network namespace
+
+The host moves the wireless **phy** into the container with `iw phy set netns`. The
+interface disappears from the host; all of its routes, DHCP leases, and IP addresses exist
+only inside the container. WiFi becomes the container's sole default route, while inbound
+MCP traffic still arrives over the Docker bridge — the host routing table is never touched.
+
+![WiFi PHY moved into the container's network namespace](docs/images/netns-isolation.png)
+
+### 2. Two MCP servers behind one port
+
+A single exposed port (3000) fronts two servers. `/mcp` is wpa-mcp itself, in-process and
+stateless. `/playwright-mcp` is a reverse proxy to a [Microsoft Playwright
+MCP](https://github.com/microsoft/playwright-mcp) subprocess whose browser shares the
+container's network namespace — so it can reach captive portals on the WLAN you joined with
+`wifi_connect`.
+
+![Two MCP servers behind one port](docs/images/dual-mcp-proxy.png)
+
+### 3. Credentials by reference, not by value
+
+EAP-TLS certificates are uploaded once (SCP), validated, and copied into a persistent store.
+Tools then reference a credential by **id** instead of passing multi-kilobyte PEM blobs in
+every call — faster, and the material survives container restarts on a Docker named volume.
+
+![Credentials by reference, not by value](docs/images/credential-store.png)
 
 ---
 
@@ -29,52 +68,40 @@ MCP (Model Context Protocol) server for WiFi control via wpa_supplicant. Enables
 
 | Category | Capabilities |
 |----------|-------------|
-| WiFi Connection | WPA-PSK, WPA2-EAP (PEAP/TTLS), EAP-TLS, open networks, BSSID targeting |
-| Network Management | Scan, status, list saved, forget, reconnect |
-| Privacy | Per-connection MAC randomization, pre-association MAC |
-| Diagnostics | EAP state/decision, filtered debug logs (eap, state, scan, error) |
-| Connectivity | Ping, DNS lookup, internet check, captive portal detection |
-| Browser Automation | Scripted Playwright runner + proxied **Microsoft Playwright MCP** for full step-by-step browser control inside the container's network namespace |
+| WiFi connection | WPA-PSK, WPA2-EAP (PEAP/TTLS), EAP-TLS, Hotspot 2.0 / Passpoint, open networks, BSSID targeting |
+| Network management | Scan, status, list saved, forget, reconnect |
+| Privacy | Per-connection MAC randomization, pre-association MAC, real-MAC restoration after netns move |
+| Diagnostics | EAP state/decision, filtered supplicant logs (eap, state, scan, error) |
+| Connectivity | Ping, DNS lookup, internet check, captive-portal detection |
+| Browser automation | Scripted Playwright runner + proxied Playwright MCP for step-by-step browser control inside the container's netns |
+| Persistence | Credential store + saved networks on a Docker named volume, across restarts and rebuilds |
 
 ---
 
-## Deployment
-
-wpa-mcp runs in a Docker container with the WiFi phy device moved into the container's network namespace using `iw phy set netns`. All WiFi routes, DHCP, and IP addresses stay inside the container and never touch the host routing table.
+## Quick start
 
 ### Prerequisites
 
-- Docker installed on the host
-- `iw` installed on the host (`sudo dnf install iw` or `sudo apt install iw`)
+- Docker, installed and running on a Linux host
+- `iw` — `sudo dnf install iw` or `sudo apt install iw`
 - A PCIe or USB WiFi adapter on the host
 
-### Step 1: Find WiFi interface and its phy
+### 1. Find the WiFi interface and its phy
 
 ```bash
-ip link show | grep -E "^[0-9]+: wl"
-# e.g. 3: wlp6s0
-
-cat /sys/class/net/wlp6s0/phy80211/name
-# e.g. phy0
+ip link show | grep -E "^[0-9]+: wl"     # e.g. 3: wlp6s0
+cat /sys/class/net/wlp6s0/phy80211/name  # e.g. phy0
 ```
 
-### Step 2: Unmanage from NetworkManager
+### 2. Release the interface from NetworkManager
 
 ```bash
 sudo make nm-unmanage WIFI_INTERFACE=wlp6s0
-# Creates /etc/NetworkManager/conf.d/99-unmanaged-wlp6s0.conf (persistent)
 ```
 
-### Step 3: Get the image, then start
+### 3. Get the image and start
 
-Either build locally:
-
-```bash
-make docker-build
-sudo make docker-start
-```
-
-Or pull the pre-built image from Docker Hub and point the Makefile at it:
+Pull the published image (recommended):
 
 ```bash
 docker pull dogkeeper886/wpa-mcp:2.0.0
@@ -82,239 +109,82 @@ echo "WPA_MCP_IMAGE=dogkeeper886/wpa-mcp:2.0.0" >> .env
 sudo make docker-start
 ```
 
-`WPA_MCP_IMAGE` is read from `.env` by `make docker-start`; default is `wpa-mcp:latest` (the local build).
-
-The start script:
-1. Starts the container with Docker bridge networking (port 3000 forwarded)
-2. Moves the WiFi phy into the container's network namespace
-3. Waits for the server to be healthy
-4. The entrypoint deletes the bridge default route so WiFi becomes the sole default
-
-### Step 4: Verify
+…or build it locally:
 
 ```bash
-# Health check
-curl http://localhost:3000/health
-
-# Host: WiFi interface is gone (moved into container)
-ip link show wlp6s0          # should fail: does not exist
-
-# Container: WiFi interface is present
-docker exec wpa-mcp ip link show wlp6s0
-docker exec wpa-mcp ip route
+make docker-build
+sudo make docker-start
 ```
 
-### Step 5: Register MCP client
+`make docker-start` runs the container with Docker bridge networking, moves the WiFi phy
+into its namespace, waits for health, and deletes the bridge default route so WiFi is the
+sole default.
 
-The container exposes **two** MCP endpoints on a single port:
+### 4. Verify
+
+```bash
+curl http://localhost:3000/health        # server is up
+ip link show wlp6s0                       # host: gone (moved into container)
+docker exec wpa-mcp ip link show wlp6s0   # container: present
+```
+
+To stop, `make docker-stop` (the phy returns to the host). To start on every boot, install
+the systemd unit with `sudo make install-systemd WIFI_INTERFACE=wlp6s0`.
+
+---
+
+## Register with an MCP client
+
+The container exposes two MCP endpoints on port 3000:
 
 | Endpoint | What it is |
 |---|---|
-| `/mcp` | wpa-mcp itself — WiFi, credentials, connectivity, scripted Playwright |
-| `/playwright-mcp` | Proxied [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) — step-by-step browser control, browser runs **inside the container's network namespace** so it reaches captive portals on the WLAN joined via `wifi_connect` |
+| `/mcp` | wpa-mcp — WiFi, credentials, connectivity, scripted Playwright |
+| `/playwright-mcp` | Proxied Playwright MCP — step-by-step browser control inside the container's netns |
 
-```bash
-# Claude Code (from host or any machine that can reach port 3000)
-claude mcp add wpa-mcp         --transport http http://localhost:3000/mcp
-claude mcp add wpa-playwright  --transport http http://localhost:3000/playwright-mcp
-```
+**Project-scoped** (this repo ships a [`.mcp.json`](.mcp.json) pointing at `localhost:3000`,
+so Claude Code auto-discovers both servers when opened here).
 
-The proxied Playwright MCP advertises its intent via the MCP `instructions` field, so agents registering this endpoint automatically see a "when to pick this server" description. For general browsing on the host's internet, register the stock `@playwright/mcp` separately.
-
-### Cleanup
-
-```bash
-# Stop container (phy returns to host automatically)
-make docker-stop
-
-# Restore NetworkManager management (optional)
-sudo make nm-restore WIFI_INTERFACE=wlp6s0
-```
-
-### Auto-start on boot (systemd)
-
-To make wpa-mcp come up automatically on every reboot, install the systemd unit:
-
-```bash
-sudo make install-systemd WIFI_INTERFACE=wlp6s0
-sudo systemctl enable --now wpa-mcp
-```
-
-This installs:
-
-| Path | Purpose |
-|------|---------|
-| `/usr/local/sbin/wpa-mcp-start` | Wrapper that does `docker run` + `iw phy set netns` + health-wait |
-| `/etc/systemd/system/wpa-mcp.service` | `Type=oneshot, RemainAfterExit=yes`, `After=docker.service` |
-
-Uninstall:
-
-```bash
-sudo make uninstall-systemd
-```
-
-The wrapper script lives in `/usr/local/sbin/` (no dependency on any user home directory), so it works even when `/home` is not yet available at boot.
-
-**Container crash recovery:** The service is `Type=oneshot, RemainAfterExit=yes`, which means systemd tracks the wrapper's exit, not the container itself. If the container dies at runtime (docker daemon crash, OOM kill), systemd will continue to report the unit as `active (exited)` but nothing is running. Recover with:
-
-```bash
-sudo systemctl restart wpa-mcp
-```
-
-`.env` at the project root is read by `make docker-start` only. The systemd install reads from the `Environment=` lines in `/etc/systemd/system/wpa-mcp.service` — edit that file (and `systemctl daemon-reload`) to change values for the daemon path.
-
-### Persistent credential store
-
-When started via either `make docker-start` or the systemd unit, a Docker named volume `wpa-mcp-data` is mounted at `/home/node/.config/wpa-mcp` inside the container. Credentials added at runtime via the `credential_store` MCP tool persist across container restarts, image rebuilds, and host reboots.
-
-Baked certs under `certs/` are separate: they are copied into the image at build time and re-imported (idempotently) on every container start.
-
-```bash
-# Inspect the volume
-docker volume inspect wpa-mcp-data
-
-# Wipe stored credentials (container must be stopped first)
-sudo systemctl stop wpa-mcp
-docker volume rm wpa-mcp-data
-```
-
-See [docs/reference/05_Docker_Netns_Isolation.md](docs/reference/05_Docker_Netns_Isolation.md) for the full netns architecture and route trace.
-
----
-
-## EAP-TLS Certificates
-
-To use EAP-TLS or Hotspot 2.0, place certificate files in the `certs/` directory before building the Docker image. They are baked into the image and auto-imported on each container startup.
-
-### File naming convention
-
-```
-certs/
-├── <identity>_crt.pem          # Client certificate (required)
-├── <identity>_prv.pem          # Private key (required)
-├── radius.*_crt.pem | ca*.pem  # CA certificate (optional)
-```
-
-Example for identity `user@example.com`:
-
-```
-certs/
-├── user@example.com_crt.pem
-├── user@example.com_prv.pem
-└── ca.pem
-```
-
-### Workflow
-
-1. Place PEM files in `certs/`
-2. Rebuild the image: `make docker-build`
-3. Start the container: `sudo make docker-start`
-4. The entrypoint auto-imports certs into the credential store (idempotent)
-5. Use `wifi_connect_tls` or `wifi_hs20_connect` to connect
-
-Credentials can also be added at runtime via the `credential_store` MCP tool, but these are ephemeral and lost when the container stops.
-
----
-
-## MCP Client Configuration
-
-### Claude Code
+**Claude Code** (from the host or any machine that can reach port 3000):
 
 ```bash
 claude mcp add wpa-mcp         --transport http http://<HOST_IP>:3000/mcp
 claude mcp add wpa-playwright  --transport http http://<HOST_IP>:3000/playwright-mcp
 ```
 
-### Claude Desktop
-
-Add to `claude_desktop_config.json`:
+**Claude Desktop** — add to `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "wpa-mcp": {
-      "url": "http://<HOST_IP>:3000/mcp"
-    },
-    "wpa-playwright": {
-      "url": "http://<HOST_IP>:3000/playwright-mcp"
-    }
+    "wpa-mcp": { "url": "http://<HOST_IP>:3000/mcp" },
+    "wpa-playwright": { "url": "http://<HOST_IP>:3000/playwright-mcp" }
   }
 }
 ```
 
 ---
 
-## Example Usage
+## Tools
 
-```
-User: "Scan for WiFi networks"
-Claude: [calls wifi_scan]
-→ Lists available networks with signal strength and security type
+23 MCP tools across five areas. Full reference: [docs/reference/01_WiFi_Tools.md](docs/reference/01_WiFi_Tools.md).
 
-User: "Connect to 'CoffeeShop' with password 'guest123'"
-Claude: [calls wifi_connect with ssid="CoffeeShop", password="guest123"]
-→ Connects, acquires IP via DHCP
+**WiFi management** — `wifi_scan`, `wifi_connect`, `wifi_connect_eap`, `wifi_connect_tls`,
+`wifi_hs20_connect`, `wifi_disconnect`, `wifi_status`, `wifi_list_networks`, `wifi_forget`,
+`wifi_reconnect`
 
-User: "Connection failed, why?"
-Claude: [calls wifi_get_debug_logs with filter="eap"]
-→ Shows authentication logs for debugging
-```
+**Diagnostics** — `wifi_eap_diagnostics`, `wifi_get_debug_logs`
 
----
+**Browser automation** — `browser_open`, `browser_run_script`, `browser_list_scripts`
 
-## Available MCP Tools
+**Credentials** — `credential_store`, `credential_list`, `credential_get`, `credential_delete`
 
-### WiFi Management
-
-| Tool | Description |
-|------|-------------|
-| `wifi_scan` | Scan for available networks (returns SSID, signal, security type) |
-| `wifi_connect` | Connect to WPA-PSK or open network |
-| `wifi_connect_eap` | Connect to WPA2-Enterprise/802.1X network (PEAP, TTLS) |
-| `wifi_connect_tls` | Connect using EAP-TLS with client certificate |
-| `wifi_hs20_connect` | Connect to Hotspot 2.0 / Passpoint network |
-| `wifi_disconnect` | Disconnect from current network |
-| `wifi_status` | Get connection status (wpa_state, ssid, ip_address, EAP info) |
-| `wifi_list_networks` | List saved networks with flags (CURRENT, TEMP-DISABLED) |
-| `wifi_forget` | Remove a saved network by network_id |
-| `wifi_reconnect` | Reconnect using saved configuration |
-
-### WiFi Diagnostics
-
-| Tool | Description |
-|------|-------------|
-| `wifi_eap_diagnostics` | Get EAP authentication state and decision |
-| `wifi_get_debug_logs` | Get filtered wpa_supplicant logs (eap, state, scan, error) |
-
-### Browser Automation
-
-| Tool | Description |
-|------|-------------|
-| `browser_open` | Open URL in default browser |
-| `browser_run_script` | Run a Playwright automation script for captive portals |
-| `browser_list_scripts` | List available scripts in `~/.config/wpa-mcp/scripts/` |
-
-### Credential Management
-
-| Tool | Description |
-|------|-------------|
-| `credential_store` | Store EAP-TLS client certificate and private key |
-| `credential_list` | List stored credentials |
-| `credential_get` | Get credential details and certificate info |
-| `credential_delete` | Delete a stored credential |
-
-### Network Connectivity
-
-| Tool | Description |
-|------|-------------|
-| `network_ping` | Ping a host |
-| `network_check_internet` | Check internet connectivity |
-| `network_check_captive` | Detect captive portal |
-| `network_dns_lookup` | Perform DNS lookup |
+**Connectivity** — `network_ping`, `network_check_internet`, `network_check_captive`,
+`network_dns_lookup`
 
 ---
 
-## Environment Variables
+## Configuration
 
 Copy `.env.example` to `.env`. Key settings:
 
@@ -324,52 +194,45 @@ Copy `.env.example` to `.env`. Key settings:
 | `HOST` | 0.0.0.0 | Bind address |
 | `WIFI_INTERFACE` | wlan0 | WiFi interface name |
 | `WPA_CONFIG_PATH` | /etc/wpa_supplicant/wpa_supplicant.conf | wpa_supplicant config |
-| `WPA_DEBUG_LEVEL` | 2 | Debug verbosity (1-3) |
-| `WPA_MCP_BROWSER_LANG` | _(unset)_ | BCP-47 locale for the in-container browser, e.g. `pt-PT`. Sets `navigator.language`, the `Accept-Language` header, and locale-aware `Intl` formatting. Applies to `mcp__wpa-playwright__*` and `browser_run_script`. Read at container start — changing requires `make docker-restart`. |
-| `WPA_MCP_BROWSER_TZ` | _(unset)_ | IANA timezone for the in-container browser, e.g. `Europe/Lisbon`. Sets `Intl.DateTimeFormat().resolvedOptions().timeZone`. Browser-scoped only — does not change the container shell clock or log timestamps. Applies to `mcp__wpa-playwright__*` and `browser_run_script`. Read at container start. |
+| `WPA_DEBUG_LEVEL` | 2 | Debug verbosity (1–3) |
+| `WPA_MCP_BROWSER_LANG` | _(unset)_ | BCP-47 locale for the in-container browser, e.g. `pt-PT` |
+| `WPA_MCP_BROWSER_TZ` | _(unset)_ | IANA timezone for the in-container browser, e.g. `Europe/Lisbon` |
 
-`browser_open` is **not** affected by these variables — it spawns the server host's default browser, which has its own locale settings.
-
-For i18n captive-portal testing, see [docs/design/14_Browser_Locale_Timezone_Design.md](docs/design/14_Browser_Locale_Timezone_Design.md).
-
----
-
-## Makefile Commands
-
-| Command | Description |
-|---------|-------------|
-| `make docker-build` | Build Docker image |
-| `sudo make docker-start` | Start container (moves WiFi phy into container netns) |
-| `make docker-stop` | Stop container (WiFi returns to host) |
-| `make docker-restart` | Stop then start |
-| `make docker-logs` | Follow container logs |
-| `make docker-status` | Check container status and health |
-| `make docker-shell` | Open bash in running container |
-| `sudo make nm-unmanage` | Persistently unmanage WiFi interface from NetworkManager |
-| `sudo make nm-restore` | Restore NetworkManager management of WiFi interface |
+The browser locale/timezone variables are read at container start and apply to
+`mcp__wpa-playwright__*` and `browser_run_script`. See
+[docs/design/14_Browser_Locale_Timezone_Design.md](docs/design/14_Browser_Locale_Timezone_Design.md).
 
 ---
 
-## API Endpoints
+## EAP-TLS certificates
 
-- `POST /mcp` -- wpa-mcp MCP protocol endpoint (Streamable HTTP, stateless)
-- `POST|GET|DELETE /playwright-mcp` -- reverse proxy to the in-container Microsoft Playwright MCP (stateful; Mcp-Session-Id required after initialize)
-- `GET /health` -- Health check
+To use EAP-TLS or Hotspot 2.0, place certificate files in `certs/` before building the
+image — they are baked in and auto-imported on each container start:
+
+```
+certs/
+├── <identity>_crt.pem   # client certificate (required)
+├── <identity>_prv.pem   # private key (required)
+└── ca*.pem              # CA certificate (optional)
+```
+
+Then `make docker-build`, `sudo make docker-start`, and connect with `wifi_connect_tls` or
+`wifi_hs20_connect`. Credentials can also be added at runtime via the `credential_store`
+tool. Full workflow: [docs/design/11_Credential_Store_Design.md](docs/design/11_Credential_Store_Design.md).
 
 ---
 
-## Reference
+## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [docs/README.md](docs/README.md) | Full documentation index, user flow, and feature table |
-| [docs/reference/00_Architecture.md](docs/reference/00_Architecture.md) | Component architecture and details |
-| [docs/reference/05_Docker_Netns_Isolation.md](docs/reference/05_Docker_Netns_Isolation.md) | Docker netns architecture and route trace |
-| [docs/reference/01_WiFi_Tools.md](docs/reference/01_WiFi_Tools.md) | WiFi tools reference and debug log filters |
+| [docs/README.md](docs/README.md) | Documentation index, user flow, feature table |
+| [docs/reference/00_Architecture.md](docs/reference/00_Architecture.md) | Component architecture |
+| [docs/reference/05_Docker_Netns_Isolation.md](docs/reference/05_Docker_Netns_Isolation.md) | Netns architecture + route trace |
+| [docs/reference/01_WiFi_Tools.md](docs/reference/01_WiFi_Tools.md) | WiFi tools + debug log filters |
 | [docs/reference/03_Browser_Tools.md](docs/reference/03_Browser_Tools.md) | Scripted runner + proxied Playwright MCP |
-| [docs/design/13_Dual_MCP_Playwright_Design.md](docs/design/13_Dual_MCP_Playwright_Design.md) | Dual-MCP `/playwright-mcp` proxy design |
-| [docs/operations/20_Troubleshooting.md](docs/operations/20_Troubleshooting.md) | Docker and DNS troubleshooting guide |
-| [docs/plans/30_Docker_Dev_Plan.md](docs/plans/30_Docker_Dev_Plan.md) | Docker production-readiness roadmap |
+| [docs/design/13_Dual_MCP_Playwright_Design.md](docs/design/13_Dual_MCP_Playwright_Design.md) | Dual-MCP proxy design |
+| [docs/operations/20_Troubleshooting.md](docs/operations/20_Troubleshooting.md) | Docker + DNS troubleshooting |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ---
