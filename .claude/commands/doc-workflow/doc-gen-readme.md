@@ -68,7 +68,7 @@ This writes the README only. It does NOT open a PR.
     1. WebSearch "README best practices <year> structure badges diagrams"
     2. Study repo → key ideas: <A>, <B>, <C>
     3. Draft structure; recommend 3 diagrams
-    4. Author docs/images/<idea>.svg → render PNG (make diagrams)
+    4. Author docs/images/<idea>.svg → render PNG (a reproducible render step)
     5. Write README.md; verify tool names / env vars / links against the code
     6. Hand off → /doc-review-readme
 

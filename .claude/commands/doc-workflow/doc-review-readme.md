@@ -23,9 +23,10 @@ Fits in the doc-workflow:
     /doc-review-readme
         │
         ├─► Step 1: Reads + looks right (reuse the skills, don't duplicate them)
-        │   - Run `reviewing-phrasing` — leads with the point, brief, right tone.
-        │   - Run `reviewing-typography` — hierarchy, grouping, scannable at a glance.
-        │   - These own the words and the look; this command does not re-judge them.
+        │   - Invoke `reviewing-phrasing` (the words) and `reviewing-typography` (the
+        │     look) by hand — they own the words/look; this command does not re-judge them.
+        │   - These are project-owned skills and may be absent in some installs. If so,
+        │     do the words + look review directly here — a missing skill is not a blocker.
         │
         ├─► Step 2: True to the code (the accuracy half)
         │   - [ ] Every command, endpoint, env var, tool name, and path is verified
