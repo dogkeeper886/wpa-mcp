@@ -93,6 +93,22 @@ project's choice.
 - diagram policy: SVG source committed + rendered to PNG (no Mermaid / inline diagram blocks)
 - diagrams dir: `docs/images/` (SVG source + rendered PNG) — also under Paths
 
+## Reports
+
+The words a gate report uses. The contract itself — the questions a report answers and
+why — is `.claude/rules/agent-report.md`; a unit resolves the wording from here.
+
+- verdict vocabulary: `PASS` · `REVISE` · `HAND BACK`
+- extra verdict (artifact review only): `CUT` — the artifact duplicates another or does
+  nothing useful; propose removal
+- section names: `Verdict` · `Findings` · `Checked` · `Not done` · `Unresolved` ·
+  `Trace` · `Next`
+- empty-section marker: `none` (a section with nothing to report says so; it is not dropped)
+- finding columns: `# · severity · location · what's wrong · smallest fix`
+- formats by medium: chat session → plain text, tables, ASCII diagrams · document or
+  issue → whatever renders there. For a *published* human-read doc the diagram policy
+  under Docs & diagrams applies instead.
+
 ## Review semantics
 
 - canonical format (source of truth): `markdown`
