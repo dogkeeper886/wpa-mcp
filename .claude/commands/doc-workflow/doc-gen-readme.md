@@ -83,7 +83,7 @@ This writes the README only. It does NOT open a PR.
     1. WebSearch "README best practices <year> structure badges diagrams"
     2. Study repo → key ideas: <A>, <B>, <C>
     3. Draft structure; recommend 3 diagrams
-    4. Author docs/images/<idea>.svg → render PNG (a reproducible render step)
+    4. Author <idea>.svg in the project's diagrams dir → render PNG (a reproducible step)
     5. Write README.md; verify tool names / env vars / links against the code
     6. Hand off → /doc-review-readme
 
@@ -91,7 +91,7 @@ This writes the README only. It does NOT open a PR.
 
 ## API Notes
 
-- Reads the repo + the web; writes README.md (+ docs/images/* if diagrams). No PR.
+- Reads the repo + the web; writes README.md (+ the diagrams dir if diagrams). No PR.
 - The WebSearch step is mandatory — it is what keeps this command from going stale.
 - Diagrams are optional; when used, SVG is the source of truth and the PNG is rendered.
 - Producer paired with the review `/doc-review-readme` (see .claude/rules/doc-workflow.md).
